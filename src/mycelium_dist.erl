@@ -52,6 +52,10 @@ listen(Name, ExtraOpts) ->
         ok ->
             ok = project_defaults(),
             ok = project_listen_port(),
+            %% Snapshot the SHA-256 of the effective listener cert now
+            %% that quic.dist is final, for the auth channel binding (H1).
+            %% This is exactly the cert quic_dist:listen serves below.
+            ok = mycelium_dist_auth:cache_server_cert_binding(),
             quic_dist:listen(Name, ExtraOpts);
         {error, _} = Err ->
             Err
@@ -108,7 +112,8 @@ ensure_modules_loaded() ->
          mycelium_discovery_file,
          mycelium_discovery_dns,
          mycelium_dist_auth_callback,
-         mycelium_dist_auth_stream]),
+         mycelium_dist_auth_stream,
+         mycelium_dist_auth]),
     ok.
 
 %% Lazily materialise the QUIC TLS cert/key if they aren't on disk

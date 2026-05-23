@@ -22,9 +22,15 @@
 %% Challenge-response primitives used by the auth stream module.
 -export([
     create_challenge/0,
-    sign_challenge/2,
-    verify_response/3,
+    sign_challenge/3,
+    verify_response/4,
     validate_peer_ts/1
+]).
+
+%% TLS channel binding (H1): SHA-256 of the listener's TLS cert.
+-export([
+    cache_server_cert_binding/0,
+    server_cert_binding/0
 ]).
 
 %% Internal exports for testing.
@@ -41,6 +47,10 @@
 -define(PUBLIC_KEY_SIZE, 32).
 -define(PRIVATE_KEY_SIZE, 32).
 -define(TIMESTAMP_WINDOW_MS, 30000).
+%% SHA-256 of the listener TLS cert, mixed into every signed handshake
+%% message as the channel binding.
+-define(BINDING_SIZE, 32).
+-define(SERVER_CERT_BINDING_KEY, {?MODULE, server_cert_binding}).
 
 %%====================================================================
 %% Public API
@@ -108,22 +118,29 @@ create_challenge() ->
     {Nonce, WallTs, MonoStart}.
 
 %% @doc Sign a challenge built locally. The message format
-%% `Nonce | Timestamp | OwnPubKey' binds the signature to the
-%% signer's own identity.
--spec sign_challenge(binary(), integer()) -> {ok, binary()} | {error, term()}.
-sign_challenge(Nonce, Timestamp) when byte_size(Nonce) =:= ?NONCE_SIZE ->
+%% `Nonce | Timestamp | OwnPubKey | Binding' binds the signature to the
+%% signer's own identity and to the QUIC TLS channel: `Binding' is the
+%% SHA-256 of the server's TLS certificate (H1). A relayed signature
+%% computed over a different channel's cert no longer verifies.
+-spec sign_challenge(binary(), integer(), binary()) ->
+    {ok, binary()} | {error, term()}.
+sign_challenge(Nonce, Timestamp, Binding)
+  when byte_size(Nonce) =:= ?NONCE_SIZE, byte_size(Binding) =:= ?BINDING_SIZE ->
     case get_private_key() of
         {ok, PrivKey} ->
             case get_public_key() of
                 {ok, PubKey} ->
                     Message =
-                        <<Nonce/binary, Timestamp:64/big, PubKey/binary>>,
+                        <<Nonce/binary, Timestamp:64/big,
+                          PubKey/binary, Binding/binary>>,
                     Sig = crypto:sign(eddsa, none, Message, [PrivKey, ed25519]),
                     {ok, Sig};
                 Error -> Error
             end;
         Error -> Error
-    end.
+    end;
+sign_challenge(_, _, _) ->
+    {error, invalid_binding}.
 
 %% @doc Verify a peer's response. Rebuilds the signed message as
 %% `Nonce | WallTs | ResponderPubKey' and checks the signature. The
@@ -132,26 +149,29 @@ sign_challenge(Nonce, Timestamp) when byte_size(Nonce) =:= ?NONCE_SIZE ->
 %% handshake cannot spuriously fail (or pass) the duration check.
 -spec verify_response(
     binary(), binary(),
-    {binary(), integer(), integer()}
+    {binary(), integer(), integer()},
+    binary()
 ) -> boolean().
-verify_response(Signature, ResponderPubKey, {Nonce, WallTs, MonoStart})
+verify_response(Signature, ResponderPubKey, {Nonce, WallTs, MonoStart}, Binding)
   when byte_size(Signature)       =:= ?SIGNATURE_SIZE,
        byte_size(ResponderPubKey) =:= ?PUBLIC_KEY_SIZE,
        byte_size(Nonce)           =:= ?NONCE_SIZE,
+       byte_size(Binding)         =:= ?BINDING_SIZE,
        is_integer(WallTs),
        is_integer(MonoStart) ->
     Elapsed = erlang:monotonic_time(millisecond) - MonoStart,
     case Elapsed =< get_timestamp_window() of
         true ->
             Message =
-                <<Nonce/binary, WallTs:64/big, ResponderPubKey/binary>>,
+                <<Nonce/binary, WallTs:64/big,
+                  ResponderPubKey/binary, Binding/binary>>,
             crypto:verify(
                 eddsa, none, Message, Signature, [ResponderPubKey, ed25519]
             );
         false ->
             false
     end;
-verify_response(_, _, _) ->
+verify_response(_, _, _, _) ->
     false.
 
 %% @doc Reject a peer-supplied wall timestamp that is too far from
@@ -281,6 +301,64 @@ match_node_pattern(_, _) -> false.
 -spec match_part(string(), string()) -> boolean().
 match_part("*", _) -> true;
 match_part(P,   N) -> P =:= N.
+
+%%====================================================================
+%% TLS channel binding (H1)
+%%====================================================================
+
+%% @doc Cache the SHA-256 of the effective listener TLS certificate, for
+%% use as the handshake channel binding. Called once at listen time,
+%% after the `quic.dist' config is projected, so the hash matches exactly
+%% the cert `quic_dist' serves. Reads `cert_file' from the merged config
+%% (honours `-mycelium_dist_cert_dir' and a user-supplied cert), not the
+%% default path. Best-effort: logs and continues on failure (the auth
+%% path then fails closed when it cannot resolve the binding).
+-spec cache_server_cert_binding() -> ok.
+cache_server_cert_binding() ->
+    case compute_server_cert_binding() of
+        {ok, Hash} ->
+            persistent_term:put(?SERVER_CERT_BINDING_KEY, Hash);
+        {error, Reason} ->
+            logger:error("mycelium_dist_auth: cannot hash listener cert for "
+                         "channel binding: ~p", [Reason])
+    end,
+    ok.
+
+%% @doc The server-side channel binding: SHA-256 of the listener cert.
+%% Returns the cached value, recomputing from the effective config if the
+%% cache is cold (e.g. the auth path runs before listen cached it).
+-spec server_cert_binding() -> {ok, binary()} | {error, term()}.
+server_cert_binding() ->
+    case persistent_term:get(?SERVER_CERT_BINDING_KEY, undefined) of
+        undefined -> compute_server_cert_binding();
+        Hash      -> {ok, Hash}
+    end.
+
+compute_server_cert_binding() ->
+    DistOpts = application:get_env(quic, dist, []),
+    case proplists:get_value(cert_file, DistOpts) of
+        undefined -> {error, no_cert_file};
+        CertFile  -> cert_file_hash(CertFile)
+    end.
+
+cert_file_hash(CertFile) ->
+    case file:read_file(CertFile) of
+        {ok, Pem} ->
+            case first_cert_der(Pem) of
+                {ok, Der}      -> {ok, crypto:hash(sha256, Der)};
+                {error, _} = E -> E
+            end;
+        {error, Reason} ->
+            {error, {read_cert_failed, Reason}}
+    end.
+
+first_cert_der(Pem) ->
+    try [Der || {'Certificate', Der, not_encrypted} <- public_key:pem_decode(Pem)] of
+        [Der | _] -> {ok, Der};
+        []        -> {error, no_certificate_in_pem}
+    catch _:Reason ->
+        {error, {pem_decode_failed, Reason}}
+    end.
 
 %%====================================================================
 %% Configuration Helpers

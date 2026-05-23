@@ -29,6 +29,13 @@
 %% 2-byte big-endian length prefix used during the auth handshake.
 -define(LEN_SIZE, 2).
 
+%% The handshake runs in a single linear process (the quic_dist
+%% gatekeeper/setup process). The TLS channel binding is constant for
+%% the whole handshake, so it is stashed in the process dictionary
+%% rather than threaded through every send/recv frame, mirroring the
+%% `mycelium_dial_target' stash that mycelium_dist:setup/5 uses.
+-define(BINDING_KEY, mycelium_channel_binding).
+
 %%====================================================================
 %% Public API
 %%====================================================================
@@ -118,15 +125,25 @@ with_metrics(Role, F) ->
 %%====================================================================
 
 run_outgoing(Conn, TargetNode, Timeout) ->
-    case quic:open_unidirectional_stream(Conn) of
-        {ok, MyStream} ->
-            try
-                do_outgoing(Conn, MyStream, TargetNode, Timeout)
-            after
-                catch quic:send_data(Conn, MyStream, <<>>, true)
+    %% Channel binding (H1): the client binds to the server cert it
+    %% actually observed on this TLS connection. Fail closed if the peer
+    %% cert is unavailable - an unbound handshake is exactly the relay
+    %% the binding defends against.
+    case client_binding(Conn) of
+        {ok, Binding} ->
+            set_binding(Binding),
+            case quic:open_unidirectional_stream(Conn) of
+                {ok, MyStream} ->
+                    try
+                        do_outgoing(Conn, MyStream, TargetNode, Timeout)
+                    after
+                        catch quic:send_data(Conn, MyStream, <<>>, true)
+                    end;
+                {error, Reason} ->
+                    {error, {open_auth_stream_failed, Reason}}
             end;
         {error, Reason} ->
-            {error, {open_auth_stream_failed, Reason}}
+            {error, {channel_binding_failed, Reason}}
     end.
 
 do_outgoing(Conn, MyStream, TargetNode, Timeout) ->
@@ -279,7 +296,8 @@ client_recv_response(Conn, PeerStream, Buffer, PeerNode, PeerPubKey,
                 {response, PeerSig} ->
                     case
                         mycelium_dist_auth:verify_response(
-                            PeerSig, PeerPubKey, {MyNonce, MyTs, MyMono}
+                            PeerSig, PeerPubKey, {MyNonce, MyTs, MyMono},
+                            binding()
                         )
                     of
                         true ->
@@ -324,11 +342,20 @@ client_recv_ok(Conn, PeerStream, Buffer, PeerNodeBin, PeerPubKey, Timeout) ->
 %%====================================================================
 
 run_incoming(Conn, Timeout) ->
-    case wait_for_peer_stream(Conn, Timeout) of
-        {ok, PeerStream, Buffer} ->
-            do_incoming(Conn, PeerStream, Buffer, Timeout);
+    %% Channel binding (H1): the server binds to its own listener cert
+    %% (the cert it presented on this TLS connection). Fail closed if it
+    %% cannot be resolved.
+    case mycelium_dist_auth:server_cert_binding() of
+        {ok, Binding} ->
+            set_binding(Binding),
+            case wait_for_peer_stream(Conn, Timeout) of
+                {ok, PeerStream, Buffer} ->
+                    do_incoming(Conn, PeerStream, Buffer, Timeout);
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {error, Reason} ->
-            {error, Reason}
+            {error, {channel_binding_failed, Reason}}
     end.
 
 do_incoming(Conn, PeerStream, Buffer, Timeout) ->
@@ -494,7 +521,8 @@ server_recv_response(
                 {response, PeerSig} ->
                     case
                         mycelium_dist_auth:verify_response(
-                            PeerSig, PeerPubKey, {MyNonce, MyTs, MyMono}
+                            PeerSig, PeerPubKey, {MyNonce, MyTs, MyMono},
+                            binding()
                         )
                     of
                         true ->
@@ -596,25 +624,29 @@ recv_first_chunk(Conn, StreamId, Timeout) ->
 %%====================================================================
 
 sign_for_peer(Nonce, Timestamp, _PeerPubKey) ->
-    %% Sign <Nonce | Timestamp | OwnPubKey>. The peer verifies via
-    %% mycelium_dist_auth:verify_response/3 which rebuilds the message
-    %% as <Nonce | Timestamp | ResponderPubKey> (== our pubkey from the
-    %% peer's perspective). Including the responder's own pubkey gives
-    %% channel binding to the responder's identity; including the peer's
-    %% pubkey instead leaves the verifier unable to reproduce the
-    %% message.
-    case mycelium_dist_auth:get_private_key() of
-        {ok, PrivKey} ->
-            case mycelium_dist_auth:get_public_key() of
-                {ok, MyPubKey} ->
-                    Message =
-                        <<Nonce/binary, Timestamp:64/big, MyPubKey/binary>>,
-                    Sig = crypto:sign(eddsa, none, Message, [PrivKey, ed25519]),
-                    {ok, Sig};
-                Error -> Error
-            end;
-        Error ->
-            Error
+    %% Sign <Nonce | Timestamp | OwnPubKey | Binding>. The peer verifies
+    %% via mycelium_dist_auth:verify_response/4, rebuilding the message
+    %% with our pubkey (from its perspective) and the same Binding from
+    %% its own TLS viewpoint. Both the responder identity and the TLS
+    %% channel are bound, so a relayed signature over a different
+    %% channel's cert no longer verifies.
+    mycelium_dist_auth:sign_challenge(Nonce, Timestamp, binding()).
+
+%% Channel-binding stash (see ?BINDING_KEY).
+set_binding(Binding) ->
+    erlang:put(?BINDING_KEY, Binding).
+
+binding() ->
+    erlang:get(?BINDING_KEY).
+
+%% Client-side binding: SHA-256 of the server cert observed on this
+%% connection. {error, _} (incl. no_peercert) makes the caller fail closed.
+client_binding(Conn) ->
+    case quic:peercert(Conn) of
+        {ok, Der} when is_binary(Der) ->
+            {ok, crypto:hash(sha256, Der)};
+        {error, Reason} ->
+            {error, {peercert_unavailable, Reason}}
     end.
 
 send_fail(Conn, StreamId, Reason) ->
