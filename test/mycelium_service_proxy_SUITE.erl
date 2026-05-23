@@ -68,14 +68,14 @@ test_forward_cast_drops_over_cap(_Config) ->
     Name = proxy_drop_svc,
     Target = 'fake_target@host',
     {ok, Proxy} = mycelium_proxy_sup:start_proxy(Name, Target),
-    %% Saturate: in_flight = max = 1.
-    sys:replace_state(Proxy, fun({state, N0, T0, _N, _Max}) ->
-        {state, N0, T0, 1, 1}
-    end),
+    %% Saturate: in_flight = max = 1. Address the #state{} fields by
+    %% position (in_flight = 4, max_in_flight = 5) so trailing fields
+    %% are preserved.
+    sys:replace_state(Proxy, fun(S) -> setelement(4, setelement(5, S, 1), 1) end),
     gen_server:cast(Proxy, some_request),
     %% Let the handler return.
     _ = sys:get_state(Proxy),
-    {state, _, _, InFlight, _} = sys:get_state(Proxy),
+    InFlight = element(4, sys:get_state(Proxy)),
     ?assertEqual(1, InFlight),
     mycelium_proxy_sup:stop_proxy(Name),
     ok.
@@ -87,16 +87,14 @@ test_forward_cast_releases_slot(_Config) ->
     Name = proxy_release_svc,
     Target = 'fake_target@host',
     {ok, Proxy} = mycelium_proxy_sup:start_proxy(Name, Target),
-    sys:replace_state(Proxy, fun({state, N0, T0, _N, _Max}) ->
-        {state, N0, T0, 0, 2}
-    end),
+    sys:replace_state(Proxy, fun(S) -> setelement(4, setelement(5, S, 2), 0) end),
     %% rpc:call to a non-existent node returns {badrpc, nodedown}
     %% almost immediately; the spawned helper exits and triggers DOWN.
     [gen_server:cast(Proxy, {ping, I}) || I <- lists:seq(1, 5)],
     %% Sync and wait for handlers to drain.
     _ = sys:get_state(Proxy),
     timer:sleep(200),
-    {state, _, _, InFlight, _} = sys:get_state(Proxy),
+    InFlight = element(4, sys:get_state(Proxy)),
     ?assertEqual(0, InFlight),
     mycelium_proxy_sup:stop_proxy(Name),
     ok.
