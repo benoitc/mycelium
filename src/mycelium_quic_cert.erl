@@ -24,7 +24,9 @@
 
 %% Default certificate parameters
 -define(DEFAULT_DAYS, 365).
--define(DEFAULT_KEY_BITS, 2048).
+%% Backdate notBefore so a peer whose clock lags slightly does not see a
+%% not-yet-valid cert.
+-define(BACKDATE_SECONDS, 300).
 -define(DEFAULT_CERT_DIR, "data/quic").
 
 %%====================================================================
@@ -58,11 +60,11 @@ generate_cert(CertDir) ->
     %% Ensure directory exists
     ok = filelib:ensure_dir(filename:join(CertDir, "dummy")),
 
-    %% Generate RSA key pair
+    %% Generate EC key pair (P-256)
     case generate_key() of
-        {ok, PrivateKey, PublicKey} ->
+        {ok, PrivateKey} ->
             %% Create self-signed certificate
-            case create_certificate(PrivateKey, PublicKey) of
+            case create_certificate(PrivateKey) of
                 {ok, Cert} ->
                     %% Write files
                     CertFile = filename:join(CertDir, "node.crt"),
@@ -92,21 +94,20 @@ get_cert_paths() ->
 %%====================================================================
 
 %% @private
-%% Generate an RSA key pair.
+%% Generate an EC key pair on the NIST P-256 curve. The returned
+%% ECPrivateKey carries the public point in its `publicKey' field.
 generate_key() ->
     try
-        PrivateKey = public_key:generate_key({rsa, ?DEFAULT_KEY_BITS, 65537}),
-        #'RSAPrivateKey'{modulus = N, publicExponent = E} = PrivateKey,
-        PublicKey = #'RSAPublicKey'{modulus = N, publicExponent = E},
-        {ok, PrivateKey, PublicKey}
+        PrivateKey = public_key:generate_key({namedCurve, ?'secp256r1'}),
+        {ok, PrivateKey}
     catch
         _:Reason ->
             {error, {key_generation_failed, Reason}}
     end.
 
 %% @private
-%% Create a self-signed X.509 certificate.
-create_certificate(PrivateKey, PublicKey) ->
+%% Create a self-signed X.509 certificate over an EC (P-256) key.
+create_certificate(PrivateKey) ->
     try
         %% Get node name for CN
         NodeName = case node() of
@@ -128,9 +129,10 @@ create_certificate(PrivateKey, PublicKey) ->
 
         %% Validity period. Each bound is encoded as UTCTime for
         %% years <2050 and GeneralizedTime for 2050+ per RFC 5280.
+        %% notBefore is backdated a few minutes for peer clock skew.
         Now = calendar:universal_time(),
         Validity = #'Validity'{
-            notBefore = validity_time(Now),
+            notBefore = validity_time(add_seconds(Now, -?BACKDATE_SECONDS)),
             notAfter  = validity_time(add_days(Now, ?DEFAULT_DAYS))
         },
 
@@ -141,23 +143,28 @@ create_certificate(PrivateKey, PublicKey) ->
         Serial = binary:decode_unsigned(SerialBytes)
                  band ((1 bsl 127) - 1),
 
-        %% Subject public key info
+        %% Subject public key info for an EC (P-256) key. The algorithm
+        %% is id-ecPublicKey with the named-curve parameters; the public
+        %% key is the raw EC point carried in the generated private key.
+        #'ECPrivateKey'{publicKey = ECPoint} = PrivateKey,
         SubjectPKInfo = #'SubjectPublicKeyInfo'{
             algorithm = #'AlgorithmIdentifier'{
-                algorithm = ?'rsaEncryption',
-                parameters = {asn1_OPENTYPE, <<5, 0>>}
+                algorithm = ?'id-ecPublicKey',
+                %% ECParameters CHOICE value (named curve), encoded by the
+                %% TBSCertificate codec; not a pre-encoded open type.
+                parameters = {namedCurve, ?'secp256r1'}
             },
-            subjectPublicKey = public_key:der_encode('RSAPublicKey', PublicKey)
+            subjectPublicKey = ECPoint
         },
+
+        %% ecdsa-with-SHA256 has no algorithm parameters (absent).
+        SigAlg = #'AlgorithmIdentifier'{algorithm = ?'ecdsa-with-SHA256'},
 
         %% TBS Certificate
         TBSCert = #'TBSCertificate'{
             version = v3,
             serialNumber = Serial,
-            signature = #'AlgorithmIdentifier'{
-                algorithm = ?'sha256WithRSAEncryption',
-                parameters = {asn1_OPENTYPE, <<5, 0>>}
-            },
+            signature = SigAlg,
             issuer = Subject,
             validity = Validity,
             subject = Subject,
@@ -172,10 +179,7 @@ create_certificate(PrivateKey, PublicKey) ->
         %% Build final certificate
         Cert = #'Certificate'{
             tbsCertificate = TBSCert,
-            signatureAlgorithm = #'AlgorithmIdentifier'{
-                algorithm = ?'sha256WithRSAEncryption',
-                parameters = {asn1_OPENTYPE, <<5, 0>>}
-            },
+            signatureAlgorithm = SigAlg,
             signature = Signature
         },
 
@@ -196,12 +200,12 @@ create_extensions() ->
             extnValue = public_key:der_encode('BasicConstraints',
                 #'BasicConstraints'{cA = false})
         },
-        %% Key Usage: Digital Signature, Key Encipherment
+        %% Key Usage: Digital Signature (EC key; no keyEncipherment).
         #'Extension'{
             extnID = ?'id-ce-keyUsage',
             critical = true,
             extnValue = public_key:der_encode('KeyUsage',
-                [digitalSignature, keyEncipherment])
+                [digitalSignature])
         },
         %% Extended Key Usage: TLS Server Auth, TLS Client Auth
         #'Extension'{
@@ -220,8 +224,8 @@ write_cert_files(CertFile, KeyFile, Cert, PrivateKey) ->
     try
         CertDer = public_key:der_encode('Certificate', Cert),
         CertPem = public_key:pem_encode([{'Certificate', CertDer, not_encrypted}]),
-        KeyDer = public_key:der_encode('RSAPrivateKey', PrivateKey),
-        KeyPem = public_key:pem_encode([{'RSAPrivateKey', KeyDer, not_encrypted}]),
+        KeyDer = public_key:der_encode('ECPrivateKey', PrivateKey),
+        KeyPem = public_key:pem_encode([{'ECPrivateKey', KeyDer, not_encrypted}]),
         ok = file:write_file(CertFile, CertPem),
         case mycelium_file:write_secure(KeyFile, KeyPem) of
             ok                 -> ok;
@@ -253,6 +257,10 @@ format_general_time({{Year, Month, Day}, {Hour, Min, Sec}}) ->
 %% @private
 %% Add days to a datetime.
 add_days(DateTime, Days) ->
-    Seconds = calendar:datetime_to_gregorian_seconds(DateTime),
-    NewSeconds = Seconds + (Days * 24 * 60 * 60),
-    calendar:gregorian_seconds_to_datetime(NewSeconds).
+    add_seconds(DateTime, Days * 24 * 60 * 60).
+
+%% @private
+%% Add (or, with a negative value, subtract) seconds to a datetime.
+add_seconds(DateTime, Seconds) ->
+    Base = calendar:datetime_to_gregorian_seconds(DateTime),
+    calendar:gregorian_seconds_to_datetime(Base + Seconds).
