@@ -21,7 +21,6 @@
 
 -define(NUMTESTS, 500).
 -define(PUBLIC_KEY_SIZE, 32).
--define(X25519_KEY_SIZE, 32).
 -define(NONCE_SIZE, 32).
 -define(SIGNATURE_SIZE, 64).
 
@@ -29,7 +28,6 @@ prop_test_() ->
     [{timeout, 60, ?_assert(run(prop_hello_roundtrip()))},
      {timeout, 60, ?_assert(run(prop_challenge_roundtrip()))},
      {timeout, 60, ?_assert(run(prop_response_roundtrip()))},
-     {timeout, 60, ?_assert(run(prop_key_exchange_roundtrip()))},
      {timeout, 60, ?_assert(run(prop_fail_roundtrip()))},
      {timeout, 60, ?_assert(run(prop_ok_roundtrip()))},
      {timeout, 60, ?_assert(run(prop_decode_random_never_crashes()))},
@@ -84,13 +82,6 @@ prop_response_roundtrip() ->
                 {response, Sig} =:= mycelium_dist_protocol:decode(Enc)
             end).
 
-prop_key_exchange_roundtrip() ->
-    ?FORALL(Key, fixed_bin(?X25519_KEY_SIZE),
-            begin
-                Enc = mycelium_dist_protocol:encode_key_exchange(Key),
-                {key_exchange, Key} =:= mycelium_dist_protocol:decode(Enc)
-            end).
-
 prop_fail_roundtrip() ->
     ?FORALL(Reason, binary(),
             begin
@@ -117,7 +108,6 @@ prop_decode_random_never_crashes() ->
                 {hello, _, _}       -> true;
                 {challenge, _, _}   -> true;
                 {response, _}       -> true;
-                {key_exchange, _}   -> true;
                 {fail, _}           -> true;
                 _                   -> false
             catch _:_ ->

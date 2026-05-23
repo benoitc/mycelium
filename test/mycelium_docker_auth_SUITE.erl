@@ -41,10 +41,6 @@
     test_service_registration_authenticated/1,
     test_node_rejoin_authenticated/1,
 
-    %% Encryption tests
-    test_encryption_enabled/1,
-    test_crypto_module_available/1,
-
     %% Whitelist tests
     test_whitelist_config/1,
     test_whitelist_pattern_matching/1,
@@ -64,7 +60,6 @@ all() ->
     [{group, auth_basic},
      {group, auth_tofu},
      {group, auth_cluster},
-     {group, encryption_tests},
      {group, whitelist_tests},
      {group, security_tests}].
 
@@ -87,10 +82,6 @@ groups() ->
             test_rpc_call_authenticated,
             test_service_registration_authenticated,
             test_node_rejoin_authenticated
-        ]},
-        {encryption_tests, [sequence], [
-            test_encryption_enabled,
-            test_crypto_module_available
         ]},
         {whitelist_tests, [sequence], [
             test_whitelist_config,
@@ -358,39 +349,6 @@ test_node_rejoin_authenticated(Config) ->
     ct:pal("After rejoin, Node3 -> Node1: ~p", [Result]),
     ?assertEqual(Node1, Result),
 
-    ok.
-
-%%====================================================================
-%% Encryption Tests
-%%====================================================================
-
-test_encryption_enabled(Config) ->
-    Nodes = ?config(test_nodes, Config),
-    [Node1 | _] = Nodes,
-
-    %% Check if encryption is enabled (default is true)
-    EncEnabled = rpc:call(Node1, mycelium_crypto, is_encryption_enabled, []),
-    ct:pal("Node1 encryption_enabled: ~p", [EncEnabled]),
-
-    %% Should be a boolean
-    ?assert(is_boolean(EncEnabled)),
-    ok.
-
-test_crypto_module_available(Config) ->
-    Nodes = ?config(test_nodes, Config),
-    [Node1 | _] = Nodes,
-
-    %% Verify crypto module functions are available
-    {module, Module} = rpc:call(Node1, code, ensure_loaded, [mycelium_crypto]),
-    ct:pal("mycelium_crypto module loaded: ~p", [Module]),
-    ?assertEqual(mycelium_crypto, Module),
-
-    %% Test key generation works
-    {PubKey, PrivKey} = rpc:call(Node1, mycelium_crypto, generate_ephemeral_keypair, []),
-    ct:pal("Generated ephemeral keypair, pub size: ~p, priv size: ~p",
-           [byte_size(PubKey), byte_size(PrivKey)]),
-    ?assertEqual(32, byte_size(PubKey)),
-    ?assertEqual(32, byte_size(PrivKey)),
     ok.
 
 %%====================================================================

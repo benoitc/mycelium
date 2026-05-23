@@ -59,19 +59,13 @@
     test_whitelist_invalid_pattern/1
 ]).
 
-%% Test cases - Key exchange protocol
--export([
-    test_key_exchange_encode_decode/1,
-    test_key_exchange_invalid_size/1
-]).
-
 %%====================================================================
 %% CT Callbacks
 %%====================================================================
 
 all() ->
     [{group, unit_tests}, {group, protocol_tests}, {group, trust_tests},
-     {group, whitelist_tests}, {group, key_exchange_tests}].
+     {group, whitelist_tests}].
 
 groups() ->
     [
@@ -88,9 +82,7 @@ groups() ->
             test_challenge_encode_decode,
             test_response_encode_decode,
             test_ok_fail_encode_decode,
-            test_invalid_message_rejected,
-            test_key_exchange_encode_decode,
-            test_key_exchange_invalid_size
+            test_invalid_message_rejected
         ]},
         {trust_tests, [sequence], [
             test_strict_rejects_unknown,
@@ -111,10 +103,6 @@ groups() ->
             test_whitelist_no_match,
             test_whitelist_empty,
             test_whitelist_invalid_pattern
-        ]},
-        {key_exchange_tests, [sequence], [
-            test_key_exchange_encode_decode,
-            test_key_exchange_invalid_size
         ]}
     ].
 
@@ -565,28 +553,4 @@ test_whitelist_invalid_pattern(_Config) ->
 
     %% Invalid pattern should not crash, just not match
     ?assertNot(mycelium_dist_auth:is_cookie_only_allowed('invalid_no_at@somewhere')),
-    ok.
-
-%%====================================================================
-%% Key Exchange Protocol Tests
-%%====================================================================
-
-test_key_exchange_encode_decode(_Config) ->
-    %% Generate X25519 keypair
-    {PubKey, _PrivKey} = crypto:generate_key(ecdh, x25519),
-    ?assertEqual(32, byte_size(PubKey)),
-
-    %% Encode key exchange message
-    Encoded = mycelium_dist_protocol:encode_key_exchange(PubKey),
-
-    %% Decode and verify
-    {key_exchange, DecodedPubKey} = mycelium_dist_protocol:decode(Encoded),
-    ?assertEqual(PubKey, DecodedPubKey),
-    ok.
-
-test_key_exchange_invalid_size(_Config) ->
-    %% Try to decode with wrong key size
-    InvalidMsg = <<6:8, "short">>,  %% Type 6 = KEY_EXCHANGE, but only 5 bytes
-    Result = mycelium_dist_protocol:decode(InvalidMsg),
-    ?assertEqual({error, invalid_key_exchange_payload}, Result),
     ok.

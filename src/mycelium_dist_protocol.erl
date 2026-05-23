@@ -13,7 +13,6 @@
     encode_response/1,
     encode_ok/0,
     encode_fail/1,
-    encode_key_exchange/1,
     decode/1,
     validate_node_name/1
 ]).
@@ -30,11 +29,9 @@
 -define(AUTH_RESPONSE, 3).
 -define(AUTH_OK, 4).
 -define(AUTH_FAIL, 5).
--define(AUTH_KEY_EXCHANGE, 6).
 
 %% Key sizes
 -define(PUBLIC_KEY_SIZE, 32).
--define(X25519_KEY_SIZE, 32).
 -define(NONCE_SIZE, 32).
 -define(SIGNATURE_SIZE, 64).
 
@@ -81,12 +78,6 @@ encode_fail(Reason) when is_binary(Reason) ->
     ReasonLen = byte_size(Reason),
     <<?AUTH_FAIL:8, ReasonLen:16/big, Reason/binary>>.
 
-%% @doc Encode AUTH_KEY_EXCHANGE message
-%% Format: `<<Type:8, EphemeralPubKey:32/binary>>'
--spec encode_key_exchange(binary()) -> binary().
-encode_key_exchange(EphemeralPubKey) when byte_size(EphemeralPubKey) =:= ?X25519_KEY_SIZE ->
-    <<?AUTH_KEY_EXCHANGE:8, EphemeralPubKey/binary>>.
-
 %%====================================================================
 %% Decoding Functions
 %%====================================================================
@@ -100,7 +91,6 @@ encode_key_exchange(EphemeralPubKey) when byte_size(EphemeralPubKey) =:= ?X25519
     {hello, binary(), binary()} |
     {challenge, binary(), integer()} |
     {response, binary()} |
-    {key_exchange, binary()} |
     ok |
     {fail, binary()} |
     {error, term()}.
@@ -134,11 +124,6 @@ decode(<<?AUTH_FAIL:8, ReasonLen:16/big, Reason:ReasonLen/binary>>) ->
     {fail, Reason};
 decode(<<?AUTH_FAIL:8, _/binary>>) ->
     {error, invalid_fail_payload};
-
-decode(<<?AUTH_KEY_EXCHANGE:8, EphemeralPubKey:?X25519_KEY_SIZE/binary>>) ->
-    {key_exchange, EphemeralPubKey};
-decode(<<?AUTH_KEY_EXCHANGE:8, _/binary>>) ->
-    {error, invalid_key_exchange_payload};
 
 decode(<<Type:8, _/binary>>) ->
     {error, {unknown_message_type, Type}};

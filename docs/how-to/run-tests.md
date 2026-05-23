@@ -87,7 +87,6 @@ multi-node:
 | `mycelium_churn_SUITE`               | Sustained join/leave behaviour                                                  |
 | `mycelium_ormap_SUITE`               | CRDT add/remove/merge                                                            |
 | `mycelium_hlc_SUITE`                 | HLC integration                                                                  |
-| `mycelium_crypto_SUITE`              | Crypto primitives (HKDF, ChaCha20-Poly1305, Ed25519)                            |
 | `mycelium_soak_SUITE`                | Gated soak (`MYCELIUM_CT_SOAK=1`); broadcast burst on 5 nodes                   |
 
 To run one suite:
