@@ -226,6 +226,9 @@ do_start_peer(Suffix, Config, Opts) ->
         "-mycelium_dist_port",     integer_to_list(Port),
         "-mycelium_dist_cert_dir", QuicDir,
         "-setcookie", "mycelium_ct",
+        %% Non-default cookie so cookie_only_nodes cases do not trip the
+        %% default-cookie boot guard; all peers share it.
+        "-mycelium", "dist_cookie",   "myc_ct_secret",
         "-mycelium", "auth_key_dir",  quote(KeysDir),
         "-mycelium", "discovery_dir", quote(DiscoveryDir),
         "-mycelium", "active_size",   integer_to_list(ActiveSize)

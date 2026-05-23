@@ -170,6 +170,17 @@ validate_auth_config(QuicDist) ->
             erlang:error({mycelium_dist, auth_enabled_without_callback});
         false ->
             ok
+    end,
+    %% Ed25519 off leaves only the dist cookie over an unauthenticated TLS
+    %% channel - warn loudly so it is never a silent default.
+    case AuthEnabled of
+        false ->
+            logger:warning(
+                "mycelium: auth_enabled=false - Ed25519 peer authentication is "
+                "OFF. Peers are gated by the dist cookie only, with no "
+                "protection against an active MITM.");
+        true ->
+            ok
     end.
 
 build_defaults() ->

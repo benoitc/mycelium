@@ -199,7 +199,7 @@ client_recv_hello(Conn, MyStream, PeerStream, Buffer, TargetNode, Timeout) ->
                          andalso mycelium_dist_auth:is_cookie_only_allowed(
                                    TargetNode
                                  ) of
-                        true  -> {ok, undefined};
+                        true  -> warn_cookie_only(), {ok, undefined};
                         _     -> {error, unexpected_auth_ok}
                     end;
                 {fail, Reason} ->
@@ -415,9 +415,24 @@ server_send_skip(Conn) ->
             Msg = mycelium_dist_protocol:encode_ok(),
             _ = stream_send(Conn, MyStream, Msg),
             catch quic:send_data(Conn, MyStream, <<>>, true),
+            warn_cookie_only(),
             {ok, undefined};
         {error, Reason} ->
             {error, {open_auth_stream_failed, Reason}}
+    end.
+
+%% Log once per node when a cookie-only (no-Ed25519) connection is
+%% accepted, so the reduced-assurance mode is visible to operators.
+warn_cookie_only() ->
+    Key = {?MODULE, cookie_only_warned},
+    case persistent_term:get(Key, false) of
+        true ->
+            ok;
+        false ->
+            persistent_term:put(Key, true),
+            logger:warning(
+                "mycelium: accepted a cookie-only peer (cookie_only_nodes) - "
+                "no Ed25519, not protected against an active MITM.")
     end.
 
 server_open_my_stream(Conn, PeerStream, Buffer, PeerNode, PeerPubKey, Timeout) ->

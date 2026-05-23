@@ -70,7 +70,25 @@ init_dist_cookie() ->
             ok;
         Node ->
             Cookie = application:get_env(mycelium, dist_cookie, mycelium),
+            check_cookie_safety(Cookie),
             erlang:set_cookie(Node, Cookie)
+    end.
+
+%% @private The default cookie is a public constant. With Ed25519 auth on
+%% it is only defense-in-depth, so we warn. But for cookie_only_nodes
+%% peers the cookie is the sole barrier - refuse to boot in that
+%% combination rather than ship a cluster gated by a known cookie.
+check_cookie_safety(Cookie) ->
+    CookieOnly = application:get_env(mycelium, cookie_only_nodes, []),
+    case Cookie =:= mycelium of
+        true when CookieOnly =/= [] ->
+            erlang:error({mycelium, cookie_only_nodes_with_default_cookie});
+        true ->
+            logger:warning(
+                "mycelium: using the default distribution cookie 'mycelium'. "
+                "Set {mycelium, [{dist_cookie, <secret>}]} for production.");
+        false ->
+            ok
     end.
 
 stop(_State) ->
