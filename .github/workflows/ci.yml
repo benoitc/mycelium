@@ -38,6 +38,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-otp-${{ matrix.otp }}-
 
+      - name: Drop stale project build (keep cached deps)
+        # The cache key tracks only rebar.lock/rebar.config, so a deleted
+        # source (e.g. a removed _SUITE) leaves an orphan .beam in the
+        # cached _build that CT would still try to run. Rebuild just our
+        # app and its test suites each run; cached deps are untouched.
+        run: rm -rf _build/default/lib/mycelium _build/test/lib/mycelium
+
       - name: Start epmd
         run: epmd -daemon
 
