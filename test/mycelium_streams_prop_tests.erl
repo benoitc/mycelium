@@ -107,12 +107,24 @@ check_dispatch(Tag, Payload, Chunks) ->
           erlang:unique_integer([positive, monotonic])},
     Demuxer = whereis(mycelium_streams),
     Total = length(Chunks),
+    %% In production the dist controller is the single serial router for a
+    %% stream: it delivers every pre-handoff chunk to the demuxer before
+    %% the synchronous controlling_process/2 call returns, so the demuxer's
+    %% post-dispatch drain (`drain_to', `after 0') deterministically sees
+    %% them all. This test delivers chunks straight to the demuxer with no
+    %% controller in between, so we reproduce that ordering by suspending
+    %% the demuxer while we enqueue, then resuming: all chunks are in its
+    %% mailbox before it processes the preamble-completing one. Without
+    %% this, the demuxer could dispatch and drain before later chunks
+    %% arrived, then mis-read them as a new preamble.
+    sys:suspend(Demuxer),
     lists:foldl(
       fun(Chunk, I) ->
               Fin = (I =:= Total),
               Demuxer ! {quic_dist_stream, SR, {data, Chunk, Fin}},
               I + 1
       end, 1, Chunks),
+    sys:resume(Demuxer),
     Opened = wait_opened(SR),
     Got = collect_data(SR, <<>>),
     ok = mycelium_streams:unregister_acceptor(Tag),
