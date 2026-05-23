@@ -32,7 +32,8 @@
     test_challenge_encode_decode/1,
     test_response_encode_decode/1,
     test_ok_fail_encode_decode/1,
-    test_invalid_message_rejected/1
+    test_invalid_message_rejected/1,
+    test_hello_decode_does_not_mint_atom/1
 ]).
 
 %% Test cases - Trust mode (the four handshake decisions)
@@ -56,7 +57,8 @@
     test_whitelist_wildcard_name/1,
     test_whitelist_no_match/1,
     test_whitelist_empty/1,
-    test_whitelist_invalid_pattern/1
+    test_whitelist_invalid_pattern/1,
+    test_whitelist_matches_binary_name/1
 ]).
 
 %%====================================================================
@@ -82,7 +84,8 @@ groups() ->
             test_challenge_encode_decode,
             test_response_encode_decode,
             test_ok_fail_encode_decode,
-            test_invalid_message_rejected
+            test_invalid_message_rejected,
+            test_hello_decode_does_not_mint_atom
         ]},
         {trust_tests, [sequence], [
             test_strict_rejects_unknown,
@@ -102,7 +105,8 @@ groups() ->
             test_whitelist_wildcard_name,
             test_whitelist_no_match,
             test_whitelist_empty,
-            test_whitelist_invalid_pattern
+            test_whitelist_invalid_pattern,
+            test_whitelist_matches_binary_name
         ]}
     ].
 
@@ -305,6 +309,25 @@ test_invalid_message_rejected(_Config) ->
 
     %% A prior-version HELLO is rejected with an explicit version error.
     {error, {unsupported_version, 1}} = mycelium_dist_protocol:decode(<<1:8, 1:8, 100:16/big, "short">>),
+    ok.
+
+%% Decoding a HELLO must not create an atom for the peer-claimed name
+%% (atom-table exhaustion defence). The name comes back as a binary; the
+%% atom is minted only after the signature verifies.
+test_hello_decode_does_not_mint_atom(_Config) ->
+    Unique = integer_to_binary(erlang:unique_integer([positive])),
+    NameBin = <<"nomint_", Unique/binary, "@h">>,
+    %% Sanity: the atom does not exist yet.
+    ?assertError(badarg, binary_to_existing_atom(NameBin, utf8)),
+
+    %% Build a v2 HELLO wire by hand so encode_hello/2 (which takes an
+    %% atom) does not mint it for us.
+    PubKey = crypto:strong_rand_bytes(32),
+    Wire = <<1:8, 2:8, (byte_size(NameBin)):16/big, NameBin/binary, PubKey/binary>>,
+    ?assertEqual({hello, NameBin, PubKey}, mycelium_dist_protocol:decode(Wire)),
+
+    %% Still no atom after decode.
+    ?assertError(badarg, binary_to_existing_atom(NameBin, utf8)),
     ok.
 
 %%====================================================================
@@ -553,4 +576,18 @@ test_whitelist_invalid_pattern(_Config) ->
 
     %% Invalid pattern should not crash, just not match
     ?assertNot(mycelium_dist_auth:is_cookie_only_allowed('invalid_no_at@somewhere')),
+    ok.
+
+%% The handshake checks cookie-only before minting an atom, so the
+%% whitelist must match on a name binary too, with the same result as
+%% the atom form and without creating an atom.
+test_whitelist_matches_binary_name(_Config) ->
+    application:set_env(mycelium, cookie_only_nodes, ['monitor@*']),
+    ?assert(mycelium_dist_auth:is_cookie_only_allowed(<<"monitor@localhost">>)),
+    ?assertNot(mycelium_dist_auth:is_cookie_only_allowed(<<"other@localhost">>)),
+    %% A never-seen matching name is allowed without minting an atom.
+    Unique = integer_to_binary(erlang:unique_integer([positive])),
+    NameBin = <<"monitor@h", Unique/binary>>,
+    ?assert(mycelium_dist_auth:is_cookie_only_allowed(NameBin)),
+    ?assertError(badarg, binary_to_existing_atom(NameBin, utf8)),
     ok.

@@ -43,7 +43,11 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%% @doc Store a public key for a node
+%% @doc Store a public key for a node, overwriting any existing pin
+%% unconditionally. This is an operator API and is NOT reachable from the
+%% wire; the handshake path uses store_key_if_new/2, which refuses to
+%% re-pin a different key. To rotate a peer's pin deliberately, delete_key/1
+%% then store_key/2.
 -spec store_key(node() | term(), binary()) -> ok | {error, term()}.
 store_key(Node, PubKey) when byte_size(PubKey) =:= ?PUBLIC_KEY_SIZE ->
     gen_server:call(?SERVER, {store_key, Node, PubKey, permanent});
