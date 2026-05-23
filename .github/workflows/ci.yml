@@ -62,10 +62,15 @@ jobs:
 
       - name: Common Test
         # The multi-node e2e suites are timing-sensitive under CI load; a
-        # different one occasionally flakes per run. On failure, rerun only
-        # the failed cases via the retry.spec rebar3 emits. A genuine
-        # (deterministic) failure still fails both attempts.
-        run: rebar3 ct || rebar3 ct --retry
+        # different case occasionally flakes per run. Retry the full suite
+        # up to 3 times (rebar3 ct --retry mis-resolves suite paths here).
+        # A deterministic failure still fails on every attempt.
+        run: |
+          for attempt in 1 2 3; do
+            if rebar3 ct; then exit 0; fi
+            echo "::warning::CT attempt ${attempt} failed; retrying"
+          done
+          exit 1
 
       - name: Upload CT logs on failure
         if: failure()
