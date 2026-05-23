@@ -74,12 +74,19 @@ jobs:
   bench:
     name: Bench vs baseline
     runs-on: ubuntu-24.04
-    # Soft gate: don't block merge if the runner is slower than the
-    # committed baseline. The script still surfaces regressions in the
-    # job log; pin tighter when hardware variance settles.
+    # Soft gate (kept as a safety net): a rare same-runner noise spike
+    # should not block merge. The comparison below benchmarks the PR head
+    # and the base commit on the SAME runner, so hardware variance cancels
+    # and the threshold catches a genuine regression. The committed
+    # bench/baseline.json is for local use only; it is machine-specific
+    # and not comparable across runners.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need history so the base commit can be checked out for the
+          # same-runner comparison.
+          fetch-depth: 0
 
       - name: Set up Erlang
         uses: erlef/setup-beam@v1
@@ -93,16 +100,27 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Run bench
+      - name: Bench PR head
         run: ./bench/run.sh 1000
 
-      - name: Compare against baseline
-        run: ./bench/compare.sh 20
+      - name: Bench base commit on the same runner
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="$(git rev-parse HEAD^)"; fi
+          echo "Benchmarking base $BASE on this runner"
+          git worktree add --detach /tmp/bench-base "$BASE"
+          ( cd /tmp/bench-base && ./bench/run.sh 1000 )
+          cp /tmp/bench-base/bench/results.json bench/base-results.json
+
+      - name: Compare PR vs base (same hardware)
+        run: ./bench/compare.sh 30 bench/results.json bench/base-results.json
 
       - name: Upload bench artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bench-results
-          path: bench/results.json
+          path: |
+            bench/results.json
+            bench/base-results.json
           retention-days: 14

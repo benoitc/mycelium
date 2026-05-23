@@ -6,16 +6,19 @@
 # 1 if any bench exceeds the threshold, 2 on missing/malformed inputs.
 #
 # Usage:
-#   ./bench/compare.sh [threshold_pct]
+#   ./bench/compare.sh [threshold_pct] [results.json] [baseline.json]
 #
-# Default threshold is 20 (%).
+# Default threshold is 20 (%). The results/baseline paths default to
+# bench/results.json and bench/baseline.json. CI passes explicit paths so
+# it can compare two runs measured on the same runner: the committed
+# baseline is hardware-specific and not comparable across machines.
 
 set -eu
 
 THRESHOLD="${1:-20}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-RESULTS="$HERE/results.json"
-BASELINE="$HERE/baseline.json"
+RESULTS="${2:-$HERE/results.json}"
+BASELINE="${3:-$HERE/baseline.json}"
 
 for f in "$RESULTS" "$BASELINE"; do
     if [ ! -f "$f" ]; then
