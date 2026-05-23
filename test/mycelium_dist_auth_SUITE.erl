@@ -134,6 +134,9 @@ init_per_testcase(_TestCase, Config) ->
     application:set_env(mycelium, auth_trust_mode, tofu),
     application:set_env(mycelium, auth_handshake_timeout, 10000),
     application:set_env(mycelium, auth_timestamp_window, 30000),
+    %% Start clean: whitelist tests mutate this env, and a leftover value
+    %% would trip the default-cookie boot guard on the next start.
+    application:set_env(mycelium, cookie_only_nodes, []),
 
     %% Start the application for tests that need it
     {ok, _} = application:ensure_all_started(mycelium),
@@ -141,6 +144,8 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     application:stop(mycelium),
+    %% Do not leak the whitelist env into later suites sharing this VM.
+    application:set_env(mycelium, cookie_only_nodes, []),
     ok.
 
 %%====================================================================
