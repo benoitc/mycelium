@@ -5,6 +5,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- The Ed25519 dist handshake is now bound to the QUIC TLS channel. Each
+  signed message includes a 32-byte binding (SHA-256 of the server's TLS
+  cert), so a relayed handshake lands on a different cert and fails to
+  verify. This closes an active on-path MITM that could relay the
+  handshake across two TLS legs in both trust modes. The wire protocol is
+  bumped to v2; a v1 peer is rejected at HELLO (flag-day change, no
+  deployed users pre-1.0).
+- The dist handshake no longer mints an atom from an unauthenticated
+  peer's claimed node name. The name is carried as a binary and the atom
+  is created only after the signature verifies, closing an atom-table
+  exhaustion DoS reachable before authentication.
+- Boot now warns when the default dist cookie is in use, when
+  `auth_enabled = false`, and when a cookie-only peer is accepted, and
+  refuses to start when `cookie_only_nodes` is set while the cookie is
+  still the default.
+- The QUIC TLS certificate is now ECDSA P-256 (was RSA-2048), with
+  `notBefore` backdated for peer clock skew.
+
+### Removed
+- `mycelium_crypto` (unused X25519/ChaCha20 layer) and the
+  `AUTH_KEY_EXCHANGE` wire message. Distribution encryption is provided
+  entirely by the QUIC TLS layer.
+
 ### Added
 - Durable reminders (`mycelium_reminder`): `mycelium:remind/3`,
   `remind_after/3`, `cancel_reminder/1`, `subscribe_reminders/0,1`,

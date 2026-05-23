@@ -61,11 +61,20 @@ Node A (client)                          Node B (server)
 
 Two design points are worth knowing in advance.
 
-**The signed message includes the responder's own public key.**
-A signature over `<<nonce, timestamp, responder_pubkey>>` is
-bound to the identity the responder claims. A signature from
-peer X cannot be replayed against peer Y to impersonate X,
-because the message X signs is different from the one Y would.
+**The signed message is bound to the responder's identity and to
+the TLS channel.** A signature is taken over
+`<<nonce, timestamp, responder_pubkey, channel_binding>>`, where
+`channel_binding` is the SHA-256 of the server's QUIC TLS
+certificate. The responder pubkey means a signature from peer X
+cannot be replayed against peer Y. The channel binding means a
+signature cannot be relayed across a different TLS connection:
+the QUIC certs are self-signed and unvalidated, so an active
+on-path attacker could otherwise terminate two TLS legs and relay
+the handshake frames verbatim. The client derives the binding
+from the server cert it observed (`quic:peercert/1`); the server
+from its own listener cert. Under a relay these differ, so
+verification fails. A stolen Ed25519 key alone, or a relayed
+pinned key, does not let an attacker sit in the middle.
 
 **The window check uses monotonic time.** The wall timestamp
 goes on the wire so peers can sanity-check each other's clocks,

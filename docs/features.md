@@ -29,7 +29,7 @@ Stability tiers used below:
 |-----------------------------------------------|--------------|-----------------------------------------------------------------|
 | `-proto_dist mycelium` boot path              | supported    | CT: `mycelium_proto_dist_SUITE`                                 |
 | `mycelium_dist` carrier defaults              | supported    | CT: `mycelium_dist_basic_SUITE`                                 |
-| Ed25519 auth challenge + handshake            | supported    | CT: `mycelium_dist_auth_SUITE`, EUnit prop suite                |
+| Ed25519 auth + TLS channel binding (v2)       | supported    | CT: `mycelium_dist_auth_SUITE`, `mycelium_proto_dist_SUITE`     |
 | TOFU vs strict trust modes                    | supported    | CT: `mycelium_dist_auth_basic_SUITE`                            |
 | Idle dist-channel GC (`mycelium_dist_gc`)     | supported    | CT case `gc_skips_live_streams`; EUnit `mycelium_dist_gc_tests` |
 | `mycelium:migrate_peer/1,2`                   | beta         | EUnit: `mycelium_migrate_peer_tests`                            |

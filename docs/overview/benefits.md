@@ -30,6 +30,11 @@ operate; nodes self-sign their TLS material and pin each other's
 Ed25519 public keys on first contact (TOFU) or via pre-shared
 keys (strict mode).
 
+The handshake is bound to the TLS channel (the signature covers a
+hash of the server's TLS certificate), so it holds against an
+active on-path attacker, not only a passive one: a relayed
+handshake lands on a different certificate and fails to verify.
+
 ### Service discovery without a registry service
 
 Names are cluster-wide. A `register_service/2` call replicates

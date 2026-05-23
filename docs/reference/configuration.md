@@ -36,7 +36,7 @@ respects any user values.
 
 | Key | Default | Type | Purpose |
 |-----|---------|------|---------|
-| `dist_cookie` | `mycelium` | `atom()` | Erlang dist cookie applied at app start. Override to a high-entropy secret in production. |
+| `dist_cookie` | `mycelium` | `atom()` | Erlang dist cookie applied at app start. Override to a high-entropy secret in production. Boot warns when the default is in use, and refuses to start if `cookie_only_nodes` is non-empty while the cookie is still the default. |
 | `dist_gc_sweep_period_ms` | `60000` | `pos_integer()` | Idle GC sweep cadence. |
 | `dist_gc_min_age_ms` | `300000` | `pos_integer()` | Minimum age before the GC may reap an idle channel. |
 | `discovery_backends` | (default chain) | `[module() \| {module(), term()}]` | Discovery backend modules in order. Default chain: `[mycelium_discovery_static, mycelium_discovery_file, mycelium_discovery_dns]`. |
@@ -46,12 +46,12 @@ respects any user values.
 
 | Key | Default | Type | Purpose |
 |-----|---------|------|---------|
-| `auth_enabled` | `true` | `boolean()` | Ed25519 challenge-response between peers. Disabling removes the only identity layer; the dist cookie becomes the sole gate. |
+| `auth_enabled` | `true` | `boolean()` | Ed25519 challenge-response between peers, bound to the TLS channel. Disabling removes the only identity layer; the dist cookie becomes the sole gate over an unauthenticated TLS channel, and boot logs a warning. |
 | `auth_trust_mode` | `tofu` | `tofu \| strict` | TOFU pins keys on first contact; strict requires every peer's key to be pre-provisioned. |
 | `auth_key_dir` | `"data/keys"` | `string()` | Directory holding `node.pub`, `node.key`, and the `trusted/` pin store. |
 | `auth_handshake_timeout` | `10000` | `pos_integer()` | Total budget for the Ed25519 round trip. |
 | `auth_timestamp_window` | `30000` | `pos_integer()` | Acceptable peer wall-clock skew, in milliseconds. The responder's own duration check uses monotonic time and is unaffected by NTP steps. |
-| `cookie_only_nodes` | `[]` | `[atom()]` | Patterns of node atoms exempt from Ed25519, gated by the dist cookie alone. Supports `*` wildcards on either side of `@`. |
+| `cookie_only_nodes` | `[]` | `[atom()]` | Patterns of node atoms exempt from Ed25519, gated by the dist cookie alone. Supports `*` wildcards on either side of `@`. Reduced assurance: such peers have no channel binding and no MITM protection, and boot warns once when one is accepted. Refused at boot if the cookie is still the default. |
 
 ## Routing and proxies
 

@@ -38,4 +38,5 @@ These are documented design properties, not vulnerabilities:
 
 - TOFU mode (`auth_trust_mode = tofu`) trusts the first key seen for a node. Use `strict` mode if you need to pre-pin keys.
 - Mycelium has no built-in NAT traversal; bypass is left to an external relay/tunnel adapter (see `docs/external-relay.md`).
-- The `cookie_only_nodes` whitelist disables Ed25519 auth for matching node names; only use it for c-nodes that genuinely cannot speak the auth protocol.
+- The `cookie_only_nodes` whitelist and `auth_enabled = false` disable the Ed25519 handshake (and its TLS channel binding) for matching peers. These are reduced-assurance modes: the connection is then gated by the dist cookie over an unauthenticated TLS channel, with no protection against an active MITM. Use `cookie_only_nodes` only for c-nodes that genuinely cannot speak the auth protocol, and never with the default cookie (boot refuses that combination).
+- The QUIC TLS certificate is self-signed (ECDSA P-256). Peer authentication and the anti-relay channel binding come from the Ed25519 layer, not from validating the TLS certificate.

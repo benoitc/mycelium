@@ -8,6 +8,14 @@ file once the audit is complete and findings are tracked in
 Audit owner: TBD.
 Target release blocked on this audit: next 0.x minor (e.g. 0.2.0).
 
+Note: an in-house review pass already landed remediations (TLS channel
+binding for the handshake, no pre-auth atom minting, weak-config boot
+guards, ECDSA P-256 cert, removal of the unused crypto module). See the
+Security section of the CHANGELOG. The external audit should review those
+fixes as implemented, not assume the prior state. In particular the
+identity-binding "channel binding" question below is now implemented as a
+TLS-cert-hash binding.
+
 ## In scope
 
 The audit should focus on the layers between the OS UDP socket and
@@ -19,9 +27,8 @@ the Erlang process inbox of a peer:
 | `mycelium_dist_auth_stream`     | Wire framing for the auth handshake, length-prefix bounds, stream lifecycle.                  |
 | `mycelium_dist_auth_callback`   | Bridge between `quic_dist`'s auth hook and the protocol.                                      |
 | `mycelium_dist_keys`            | Trust-store on-disk format, file permissions, TOFU vs strict semantics.                       |
-| `mycelium_dist_protocol`        | Encode/decode of `HELLO`/`CHALLENGE`/`RESPONSE`/`KEY_EXCHANGE`/`OK`/`FAIL`; length bounds.    |
-| `mycelium_crypto`               | Underlying primitives (`crypto` and `public_key` wrappers).                                   |
-| `mycelium_quic_cert`            | Self-signed cert generation, key permissions.                                                 |
+| `mycelium_dist_protocol`        | Encode/decode of `HELLO`/`CHALLENGE`/`RESPONSE`/`OK`/`FAIL` (v2); length bounds; no atom mint. |
+| `mycelium_quic_cert`            | Self-signed ECDSA P-256 cert generation, key permissions.                                     |
 | `mycelium_dist`                 | `proto_dist` shim, `application:get_env(quic, dist)` projection, env-override invariants.    |
 | `mycelium_rotate`               | Cert/identity rotation, atomic swap, restore-on-failure semantics.                            |
 
