@@ -208,12 +208,16 @@ leave_rejoin_test(Config) ->
     ),
 
     ok = rpc:call(Node2, mycelium, join, [Node1]),
+    %% Rejoin re-adds Node1 to the active view only after an async
+    %% peer_connected signal (join -> request_connect -> peer_connected),
+    %% which on a loaded CI runner can take a fresh connect + handshake.
+    %% Use the wider e2e budget so the multi-hop signal isn't raced.
     wait_until(
         fun() ->
             Active = rpc:call(Node2, mycelium, active_view, []),
             lists:member(Node1, Active)
         end,
-        5000
+        15000
     ),
     ok.
 
