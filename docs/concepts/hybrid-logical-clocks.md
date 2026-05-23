@@ -153,7 +153,7 @@ mycelium_hlc:from_binary(Bin) -> Ts.
 ```
 
 The HLC API is `supported` in
-[features.md](../../doc/features.md).
+[features.md](../features.md).
 
 ## Further reading
 

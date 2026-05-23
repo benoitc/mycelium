@@ -446,7 +446,7 @@ the same peer later, a new dist channel opens on demand.
 
 This GC is unconditionally on. The decoupled-from-active-view
 design relies on its presence; see
-[features.md](../../doc/features.md) for the stability tier.
+[features.md](../features.md) for the stability tier.
 
 ## Service overlay routing and proxies
 

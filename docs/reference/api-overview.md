@@ -2,7 +2,7 @@
 
 Every public function in `mycelium.erl`, grouped by subsystem.
 Each entry shows the spec and the stability tier in
-[features.md](../../doc/features.md).
+[features.md](../features.md).
 
 For implementation modules (`mycelium_dist_keys`,
 `mycelium_dist_auth`, `mycelium_streams`, etc.), see the
@@ -307,7 +307,7 @@ See the [hybrid logical clocks concept](../concepts/hybrid-logical-clocks.md).
 ## Stability tiers
 
 The tiers `supported`, `beta`, `experimental` follow the
-contract in [features.md](../../doc/features.md):
+contract in [features.md](../features.md):
 
 - **supported** survives across minor bumps with deprecation
   notices in the CHANGELOG.

@@ -158,7 +158,7 @@ they do not initiate any action.
 ## Stability tier
 
 `migrate_peer/1,2` is marked `beta` in
-[features.md](../../doc/features.md). The opts map may grow new
+[features.md](../features.md). The opts map may grow new
 keys across minor bumps; the existing `timeout` key is stable.
 
 The error returns are stable. Code that pattern-matches

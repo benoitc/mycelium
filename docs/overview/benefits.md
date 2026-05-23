@@ -109,7 +109,7 @@ If you can answer "yes" to any of these, look elsewhere:
 ## Stability tiers
 
 The public API is split into three tiers, tracked in
-[doc/features.md](../../doc/features.md):
+[docs/features.md](../features.md):
 
 - **supported** — covered by deprecation and breaking-change
   notice across minor bumps.

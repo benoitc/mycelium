@@ -218,7 +218,7 @@ mycelium_streams:list_acceptors() -> [{Tag, Pid}].
 ```
 
 The streams subsystem is marked `beta` in
-[features.md](../../doc/features.md). Wire-protocol changes are
+[features.md](../features.md). Wire-protocol changes are
 flagged in the CHANGELOG.
 
 ## Related

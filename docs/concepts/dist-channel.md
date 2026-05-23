@@ -175,7 +175,7 @@ to the same peer later, a fresh channel opens on demand.
 
 The GC has **no enable/disable flag**. The
 decoupled-from-active-view design relies on its presence; see
-[features](../../doc/features.md) for the stability tier.
+[features](../features.md) for the stability tier.
 Tunables:
 
 | Key | Default | Purpose |

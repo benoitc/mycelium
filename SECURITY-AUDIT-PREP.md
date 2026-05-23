@@ -3,7 +3,7 @@
 Working document for the external review of mycelium's crypto and
 transport layers ahead of the first public 0.x release. Delete this
 file once the audit is complete and findings are tracked in
-`doc/features.md` or the CHANGELOG.
+`docs/features.md` or the CHANGELOG.
 
 Audit owner: TBD.
 Target release blocked on this audit: next 0.x minor (e.g. 0.2.0).
@@ -142,7 +142,7 @@ Recommended deliverables:
 
 Once the report lands:
 
-- Track findings as items in `doc/features.md` next to the relevant
+- Track findings as items in `docs/features.md` next to the relevant
   feature row.
 - File CHANGELOG entries under the release that contains the
   remediation.

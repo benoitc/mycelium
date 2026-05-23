@@ -231,7 +231,7 @@ Authoritative material when you know what you are looking for.
   supervision tree and protocol-level details.
 - [Comparison with Partisan](docs/reference/comparison-with-partisan.md)
   — side-by-side, when to pick which library.
-- [Feature stability](doc/features.md) — public API tiers and
+- [Feature stability](docs/features.md) — public API tiers and
   coverage.
 
 ## Example application
@@ -279,7 +279,7 @@ Mycelium is still in `0.x`.
 - `1.0` will come after an external audit of the dist auth and
   transport layers, and after public user feedback on a `0.x` release.
 
-Public API stability tiers are tracked in [doc/features.md](doc/features.md).
+Public API stability tiers are tracked in [docs/features.md](docs/features.md).
 Anything not listed there is internal.
 
 ## License

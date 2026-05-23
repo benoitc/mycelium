@@ -167,7 +167,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `bench/results.json`; `bench/compare.sh` diffs against
   `bench/baseline.json` and fails on regression. Soft CI gate
   (`continue-on-error`) until hardware variance settles.
-- `doc/features.md` catalogs every public feature with a stability
+- `docs/features.md` catalogs every public feature with a stability
   tier (`supported`, `beta`, `experimental`) and CT/EUnit coverage.
 - `docs/observability.md`, `docs/troubleshooting.md`,
   `docs/deployment.md`.
@@ -190,7 +190,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the fallback scans the tuple for a pid that answers
   `quic:get_path_stats/1`.
 - Every public export in `src/mycelium.erl` carries a `Stability:`
-  tag matching `doc/features.md`.
+  tag matching `docs/features.md`.
 
 ### Removed
 - Multi-hop circuits (`mycelium:circuit_*` API and the

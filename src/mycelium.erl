@@ -97,7 +97,7 @@
 %%====================================================================
 %% HyParView API
 %%
-%% Stability tiers per `doc/features.md'. Each export below carries a
+%% Stability tiers per `docs/features.md'. Each export below carries a
 %% `Stability:' line so grep, ex_doc and reviewers can spot the
 %% contract level at a glance.
 %%====================================================================
