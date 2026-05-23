@@ -246,20 +246,31 @@ derived_pubkey(PrivKey) ->
 
 %% @doc Check if a node may bypass the Ed25519 handshake on the
 %% strength of the Erlang dist cookie alone (c-nodes, legacy tools).
--spec is_cookie_only_allowed(node()) -> boolean().
+%% Accepts a node atom or a (peer-supplied) name binary. The binary
+%% form is matched without atomising, so the cookie-only check that
+%% runs before Ed25519 verification cannot mint atoms.
+-spec is_cookie_only_allowed(node() | binary()) -> boolean().
 is_cookie_only_allowed(Node) ->
-    Whitelist = application:get_env(mycelium, cookie_only_nodes, []),
-    lists:any(fun(P) -> match_node_pattern(P, Node) end, Whitelist).
+    case node_to_list(Node) of
+        undefined ->
+            false;
+        NodeStr ->
+            Whitelist = application:get_env(mycelium, cookie_only_nodes, []),
+            lists:any(fun(P) -> match_node_pattern(P, NodeStr) end, Whitelist)
+    end.
 
-%% @doc Match a node against a pattern that may contain wildcards.
-%% Patterns support `*' for any name or any host:
+node_to_list(Node) when is_atom(Node)   -> atom_to_list(Node);
+node_to_list(Node) when is_binary(Node) -> binary_to_list(Node);
+node_to_list(_)                         -> undefined.
+
+%% @doc Match a node name string against a pattern that may contain
+%% wildcards. Patterns support `*' for any name or any host:
 %%   'cnode@localhost'  - exact match
 %%   'monitor@*'        - any host
 %%   '*@trusted.local'  - any name on specific host
--spec match_node_pattern(atom(), node()) -> boolean().
-match_node_pattern(Pattern, Node) when is_atom(Pattern), is_atom(Node) ->
+-spec match_node_pattern(atom(), string()) -> boolean().
+match_node_pattern(Pattern, NodeStr) when is_atom(Pattern), is_list(NodeStr) ->
     PatternStr = atom_to_list(Pattern),
-    NodeStr    = atom_to_list(Node),
     case {string:split(PatternStr, "@"), string:split(NodeStr, "@")} of
         {[PName, PHost], [NName, NHost]} ->
             match_part(PName, NName) andalso match_part(PHost, NHost);

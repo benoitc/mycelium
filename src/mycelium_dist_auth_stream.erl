@@ -299,11 +299,13 @@ client_recv_response(Conn, PeerStream, Buffer, PeerNode, PeerPubKey,
             {error, {recv_response_failed, Reason}}
     end.
 
-client_recv_ok(Conn, PeerStream, Buffer, PeerNode, PeerPubKey, Timeout) ->
+client_recv_ok(Conn, PeerStream, Buffer, PeerNodeBin, PeerPubKey, Timeout) ->
     case decode_with_buffer(Conn, PeerStream, Buffer, Timeout) of
         {ok, Bin, _Rest} ->
             case mycelium_dist_protocol:decode(Bin) of
                 ok ->
+                    %% Signature verified: now safe to mint the atom.
+                    PeerNode = binary_to_atom(PeerNodeBin, utf8),
                     case record_peer(PeerNode, PeerPubKey) of
                         ok                 -> {ok, PeerNode};
                         {error, _} = Error -> Error
@@ -351,7 +353,7 @@ server_after_hello(Conn, PeerStream, Buffer, PeerNode, PeerPubKey, Timeout) ->
     %% the OTP-level dist challenge that comes after.
     case mycelium_dist_auth:is_cookie_only_allowed(PeerNode) of
         true ->
-            server_send_skip(Conn, PeerNode);
+            server_send_skip(Conn);
         false ->
             case mycelium_dist_keys:lookup_pin(PeerNode) of
                 {pinned, PeerPubKey} ->
@@ -377,14 +379,16 @@ server_after_hello(Conn, PeerStream, Buffer, PeerNode, PeerPubKey, Timeout) ->
 
 %% Whitelisted peer: open our uni stream just to send AUTH_OK and
 %% finalise. The client recognises the OK frame in client_recv_hello
-%% and falls through without challenge-response.
-server_send_skip(Conn, PeerNode) ->
+%% and falls through without challenge-response. No Ed25519 runs, so
+%% we never mint an atom for the (peer-claimed) name and return
+%% `undefined' - the dist handshake that follows establishes identity.
+server_send_skip(Conn) ->
     case quic:open_unidirectional_stream(Conn) of
         {ok, MyStream} ->
             Msg = mycelium_dist_protocol:encode_ok(),
             _ = stream_send(Conn, MyStream, Msg),
             catch quic:send_data(Conn, MyStream, <<>>, true),
-            {ok, PeerNode};
+            {ok, undefined};
         {error, Reason} ->
             {error, {open_auth_stream_failed, Reason}}
     end.
@@ -506,9 +510,11 @@ server_recv_response(
             {error, {recv_response_failed, Reason}}
     end.
 
-server_send_ok(Conn, MyStream, PeerNode, PeerPubKey) ->
+server_send_ok(Conn, MyStream, PeerNodeBin, PeerPubKey) ->
     case stream_send(Conn, MyStream, mycelium_dist_protocol:encode_ok()) of
         ok ->
+            %% Signature verified: now safe to mint the atom.
+            PeerNode = binary_to_atom(PeerNodeBin, utf8),
             case record_peer(PeerNode, PeerPubKey) of
                 ok                 -> {ok, PeerNode};
                 {error, _} = Error -> Error

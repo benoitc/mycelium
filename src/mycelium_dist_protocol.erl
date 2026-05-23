@@ -89,8 +89,12 @@ encode_key_exchange(EphemeralPubKey) when byte_size(EphemeralPubKey) =:= ?X25519
 %%====================================================================
 
 %% @doc Decode an authentication message
+%% The HELLO node name is returned as a *validated binary*, not an atom.
+%% Atomising peer-controlled bytes here would let an unauthenticated peer
+%% flood the (never-GC'd) atom table; the caller mints the atom only after
+%% the Ed25519 signature is verified. See mycelium_dist_auth_stream.
 -spec decode(binary()) ->
-    {hello, node(), binary()} |
+    {hello, binary(), binary()} |
     {challenge, binary(), integer()} |
     {response, binary()} |
     {key_exchange, binary()} |
@@ -100,8 +104,8 @@ encode_key_exchange(EphemeralPubKey) when byte_size(EphemeralPubKey) =:= ?X25519
 decode(<<?AUTH_HELLO:8, ?PROTOCOL_VERSION:8, NodeLen:16/big, Rest/binary>>) ->
     case Rest of
         <<NodeBin:NodeLen/binary, PubKey:?PUBLIC_KEY_SIZE/binary>> ->
-            case materialise_node(NodeBin) of
-                {ok, NodeName} -> {hello, NodeName, PubKey};
+            case validate_node_name(NodeBin) of
+                ok             -> {hello, NodeBin, PubKey};
                 {error, _} = E -> E
             end;
         _ ->
@@ -159,22 +163,6 @@ validate_node_name(Bin)
     end;
 validate_node_name(_) ->
     {error, invalid_node_name}.
-
-%% Atomise a node-name binary only after format validation. Prefers
-%% an existing atom; mints a new one only when the format check
-%% passes. Keeps the atom table safe from peer-controlled bytes
-%% during the auth handshake.
-materialise_node(NodeBin) ->
-    case validate_node_name(NodeBin) of
-        ok ->
-            try binary_to_existing_atom(NodeBin, utf8) of
-                Atom -> {ok, Atom}
-            catch _:_ ->
-                {ok, binary_to_atom(NodeBin, utf8)}
-            end;
-        Error ->
-            Error
-    end.
 
 is_valid_part(<<C, _/binary>>) when C =:= $.; C =:= $- ->
     false;

@@ -261,7 +261,9 @@ test_hello_encode_decode(_Config) ->
     Encoded = mycelium_dist_protocol:encode_hello(NodeName, PubKey),
     {hello, DecodedNode, DecodedPubKey} = mycelium_dist_protocol:decode(Encoded),
 
-    ?assertEqual(NodeName, DecodedNode),
+    %% decode/1 returns the name as a validated binary; the atom is
+    %% minted only after the Ed25519 signature is verified.
+    ?assertEqual(atom_to_binary(NodeName, utf8), DecodedNode),
     ?assertEqual(PubKey, DecodedPubKey),
     ok.
 

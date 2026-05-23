@@ -66,8 +66,17 @@ lookup_key(Node) ->
     end.
 
 %% @doc Tri-state pin lookup. Distinguishes "no pin recorded" from
-%% "pin exists" so callers can refuse re-pin attempts.
--spec lookup_pin(node() | term()) -> not_pinned | {pinned, binary()}.
+%% "pin exists" so callers can refuse re-pin attempts. Accepts a node
+%% atom or a (peer-supplied) name binary; a binary resolves through
+%% binary_to_existing_atom so a lookup never mints a new atom. An
+%% unknown name is `not_pinned'.
+-spec lookup_pin(node() | binary() | term()) -> not_pinned | {pinned, binary()}.
+lookup_pin(Node) when is_binary(Node) ->
+    try binary_to_existing_atom(Node, utf8) of
+        Atom -> lookup_pin(Atom)
+    catch _:_ ->
+        not_pinned
+    end;
 lookup_pin(Node) ->
     case ets:lookup(?TABLE, Node) of
         [#peer_key{public_key = PubKey}] -> {pinned, PubKey};

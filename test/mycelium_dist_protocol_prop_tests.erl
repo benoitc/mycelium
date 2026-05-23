@@ -60,8 +60,11 @@ prop_hello_roundtrip() ->
             {node_name(), fixed_bin(?PUBLIC_KEY_SIZE)},
             begin
                 Enc = mycelium_dist_protocol:encode_hello(Node, PubKey),
+                %% decode/1 returns the node name as a validated binary;
+                %% the atom is minted only after auth succeeds.
+                NodeBin = atom_to_binary(Node, utf8),
                 case mycelium_dist_protocol:decode(Enc) of
-                    {hello, Node, PubKey} -> true;
+                    {hello, NodeBin, PubKey} -> true;
                     _ -> false
                 end
             end).
