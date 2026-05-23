@@ -119,11 +119,11 @@ create_certificate(PrivateKey) ->
         Subject = {rdnSequence, [
             [#'AttributeTypeAndValue'{
                 type = ?'id-at-commonName',
-                value = {utf8String, list_to_binary(NodeName)}
+                value = dir_string(NodeName)
             }],
             [#'AttributeTypeAndValue'{
                 type = ?'id-at-organizationName',
-                value = {utf8String, <<"Mycelium">>}
+                value = dir_string("Mycelium")
             }]
         ]},
 
@@ -150,9 +150,7 @@ create_certificate(PrivateKey) ->
         SubjectPKInfo = #'SubjectPublicKeyInfo'{
             algorithm = #'AlgorithmIdentifier'{
                 algorithm = ?'id-ecPublicKey',
-                %% ECParameters CHOICE value (named curve), encoded by the
-                %% TBSCertificate codec; not a pre-encoded open type.
-                parameters = {namedCurve, ?'secp256r1'}
+                parameters = ec_named_curve_params()
             },
             subjectPublicKey = ECPoint
         },
@@ -253,6 +251,34 @@ format_utc_time({{Year, Month, Day}, {Hour, Min, Sec}}) ->
 format_general_time({{Year, Month, Day}, {Hour, Min, Sec}}) ->
     lists:flatten(io_lib:format("~4..0w~2..0w~2..0w~2..0w~2..0w~2..0wZ",
                                 [Year, Month, Day, Hour, Min, Sec])).
+
+%% @private
+%% Encode a DirectoryString attribute value in the form the local
+%% public_key/asn1 backend accepts. OTP >= 28 (PKIX1Explicit-2009) takes
+%% the typed CHOICE tuple; OTP =< 27 (OTP-PUB-KEY) treats the
+%% AttributeTypeAndValue value as an open type and wants pre-encoded DER.
+dir_string(Str) ->
+    Bin = unicode:characters_to_binary(Str),
+    case otp_major() >= 28 of
+        true  -> {utf8String, Bin};
+        false -> public_key:der_encode('X520CommonName', {utf8String, Bin})
+    end.
+
+otp_major() ->
+    try list_to_integer(erlang:system_info(otp_release))
+    catch _:_ -> 0
+    end.
+
+%% @private
+%% The SubjectPublicKeyInfo EC parameters, in the form the local asn1
+%% backend accepts: OTP >= 28 takes the ECParameters CHOICE; OTP =< 27
+%% treats it as an open type and wants pre-encoded DER.
+ec_named_curve_params() ->
+    Curve = {namedCurve, ?'secp256r1'},
+    case otp_major() >= 28 of
+        true  -> Curve;
+        false -> public_key:der_encode('EcpkParameters', Curve)
+    end.
 
 %% @private
 %% Add days to a datetime.
