@@ -136,6 +136,19 @@ init([]) ->
         modules => [mycelium_plumtree_sup]
     },
 
+    %% Public replicated maps (mycelium_map). Dynamic: starts empty and
+    %% hosts whatever maps the app declares in `replicated_maps' or creates
+    %% at runtime. After Plumtree + HyParView (the per-map replica
+    %% subscribes to both).
+    MapSup = #{
+        id => mycelium_map_sup,
+        start => {mycelium_map_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [mycelium_map_sup]
+    },
+
     Bridge = #{
         id => mycelium_bridge,
         start => {mycelium_bridge, start_link, []},
@@ -170,6 +183,6 @@ init([]) ->
 
     ChildSpecs = [HLC, DistKeys, HyparviewSup, PlumtreeSup, RegistrySup,
                   Leader, LeaderSync, Shard, ShardReplica,
-                  Reminder, ReminderReplica,
+                  Reminder, ReminderReplica, MapSup,
                   Bridge, Streams, DistGc],
     {ok, {SupFlags, ChildSpecs}}.

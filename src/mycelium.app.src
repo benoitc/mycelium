@@ -14,7 +14,8 @@
         mycelium_shard,
         mycelium_members_replica,
         mycelium_reminder,
-        mycelium_reminder_replica
+        mycelium_reminder_replica,
+        mycelium_map_sup
     ]},
     {mod, {mycelium_app, []}},
     {applications, [
@@ -50,7 +51,16 @@
         %% propagation time plus member_ttl_ms, so no add older than a
         %% dropped tombstone can still be in flight (else a reminder could
         %% be resurrected after a long partition).
-        {reminder_tombstone_ttl_ms, 3600000}
+        {reminder_tombstone_ttl_ms, 3600000},
+        %% Public replicated maps (mycelium_map). Maps declared here start
+        %% on every node at boot, so a config-declared map is cluster-wide
+        %% with no per-node call. Each entry is {Name :: atom(), Opts :: map()}.
+        {replicated_maps, []},
+        %% Per-map tombstone-GC sweep cadence and TTL (same resurrection
+        %% caveat as reminder_tombstone_ttl_ms). Overridable per map via
+        %% new/2 Opts.
+        {mycelium_map_scan_ms, 1000},
+        {mycelium_map_tombstone_ttl_ms, 3600000}
     ]},
     {modules, []},
     {licenses, ["Apache-2.0"]},

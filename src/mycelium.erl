@@ -88,6 +88,13 @@
     migrate_peer/2
 ]).
 
+%% Replicated maps (mycelium_map)
+-export([
+    new_map/1, new_map/2, delete_map/1,
+    map_put/3, map_remove/2, map_get/2, map_keys/1, map_to_list/1,
+    subscribe_map/1, subscribe_map/2, unsubscribe_map/1, unsubscribe_map/2
+]).
+
 %% Test helpers (for integration tests)
 -export([
     start_service_holder/1,
@@ -441,6 +448,78 @@ subscribe_reminders(Pid) ->
 -spec unsubscribe_reminders(pid()) -> ok.
 unsubscribe_reminders(Pid) ->
     mycelium_reminder:unsubscribe(Pid).
+
+%%====================================================================
+%% Replicated maps - gossiped, eventually-consistent key-value state
+%%====================================================================
+
+%% @doc Start a replicated map named `Name' on this node. A map is
+%% node-local: to be cluster-wide it must run on every participating node
+%% (declare it in the `replicated_maps' env, or call this on each node).
+%% Idempotent. See `mycelium_map' for the full API and caveats.
+%% Stability: beta.
+-spec new_map(atom()) -> {ok, pid()} | {error, term()}.
+new_map(Name) ->
+    mycelium_map:new(Name).
+
+%% Stability: beta.
+-spec new_map(atom(), mycelium_map:opts()) -> {ok, pid()} | {error, term()}.
+new_map(Name, Opts) ->
+    mycelium_map:new(Name, Opts).
+
+%% @doc Stop a map on this node (node-local; not a cluster-wide erase).
+%% Stability: beta.
+-spec delete_map(atom()) -> ok.
+delete_map(Name) ->
+    mycelium_map:delete_map(Name).
+
+%% Stability: beta.
+-spec map_put(atom(), term(), term()) ->
+    ok | {error, invalid_value | no_such_map}.
+map_put(Name, Key, Value) ->
+    mycelium_map:put(Name, Key, Value).
+
+%% Stability: beta.
+-spec map_remove(atom(), term()) -> ok | {error, no_such_map}.
+map_remove(Name, Key) ->
+    mycelium_map:remove(Name, Key).
+
+%% Stability: beta.
+-spec map_get(atom(), term()) -> {ok, term()} | not_found.
+map_get(Name, Key) ->
+    mycelium_map:get(Name, Key).
+
+%% Stability: beta.
+-spec map_keys(atom()) -> [term()].
+map_keys(Name) ->
+    mycelium_map:keys(Name).
+
+%% Stability: beta.
+-spec map_to_list(atom()) -> [{term(), term()}].
+map_to_list(Name) ->
+    mycelium_map:to_list(Name).
+
+%% @doc Subscribe the caller to a map's change events:
+%% `{mycelium_map, Name, {put, Key, Value} | {remove, Key}}'.
+%% Stability: beta.
+-spec subscribe_map(atom()) -> ok | {error, no_such_map}.
+subscribe_map(Name) ->
+    mycelium_map:subscribe(Name).
+
+%% Stability: beta.
+-spec subscribe_map(atom(), pid()) -> ok | {error, no_such_map}.
+subscribe_map(Name, Pid) ->
+    mycelium_map:subscribe(Name, Pid).
+
+%% Stability: beta.
+-spec unsubscribe_map(atom()) -> ok | {error, no_such_map}.
+unsubscribe_map(Name) ->
+    mycelium_map:unsubscribe(Name).
+
+%% Stability: beta.
+-spec unsubscribe_map(atom(), pid()) -> ok | {error, no_such_map}.
+unsubscribe_map(Name, Pid) ->
+    mycelium_map:unsubscribe(Name, Pid).
 
 %%====================================================================
 %% Via Callbacks - for use with {via, mycelium, Name}
