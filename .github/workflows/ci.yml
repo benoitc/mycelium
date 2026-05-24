@@ -7,18 +7,13 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    name: OTP ${{ matrix.otp }}
+  unit-tests:
+    name: Unit Tests OTP ${{ matrix.otp }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - otp: '27'
-            rebar3: '3.24.0'
-          - otp: '28'
-            rebar3: '3.24.0'
-
+        otp: ['27', '28']
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +21,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
-          rebar3-version: ${{ matrix.rebar3 }}
+          rebar3-version: '3.24.0'
 
       - name: Cache deps + _build
         uses: actions/cache@v4
@@ -34,9 +29,44 @@ jobs:
           path: |
             _build
             ~/.cache/rebar3
-          key: ${{ runner.os }}-otp-${{ matrix.otp }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
+          key: ${{ runner.os }}-unit-otp-${{ matrix.otp }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
           restore-keys: |
-            ${{ runner.os }}-otp-${{ matrix.otp }}-
+            ${{ runner.os }}-unit-otp-${{ matrix.otp }}-
+
+      - name: Start epmd
+        run: epmd -daemon
+
+      - name: Compile
+        run: rebar3 compile
+
+      - name: EUnit
+        run: rebar3 eunit
+
+  ct:
+    name: Common Test OTP ${{ matrix.otp }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: ['27', '28']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          rebar3-version: '3.24.0'
+
+      - name: Cache deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: ${{ runner.os }}-ct-otp-${{ matrix.otp }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
+          restore-keys: |
+            ${{ runner.os }}-ct-otp-${{ matrix.otp }}-
 
       - name: Drop stale project build (keep cached deps)
         # The cache key tracks only rebar.lock/rebar.config, so a deleted
@@ -50,15 +80,6 @@ jobs:
 
       - name: Compile
         run: rebar3 compile
-
-      - name: XRef
-        run: rebar3 xref
-
-      - name: Dialyzer
-        run: rebar3 dialyzer
-
-      - name: EUnit
-        run: rebar3 eunit
 
       - name: Common Test
         # The multi-node e2e suites are timing-sensitive under CI load; a
@@ -79,6 +100,67 @@ jobs:
           name: ct-logs-otp${{ matrix.otp }}
           path: _build/test/logs
           retention-days: 7
+
+  xref:
+    name: XRef
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          rebar3-version: '3.24.0'
+      - name: XRef
+        run: rebar3 xref
+
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          rebar3-version: '3.24.0'
+      - name: Restore PLT cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build/*_plt
+            ~/.cache/rebar3
+          key: ${{ runner.os }}-plt-otp28-${{ hashFiles('rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-plt-otp28-
+      - name: Dialyzer
+        run: rebar3 dialyzer
+
+  format:
+    name: erlfmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          rebar3-version: '3.24.0'
+      - name: Check formatting
+        run: rebar3 fmt --check
+
+  lint:
+    name: Elvis lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          rebar3-version: '3.24.0'
+      - name: Elvis lint
+        run: rebar3 lint
 
   bench:
     name: Bench vs baseline
