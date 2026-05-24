@@ -22,7 +22,8 @@
     adding_a_node_moves_only_its_partitions/1,
     removing_a_node_moves_only_its_partitions/1,
     lease_expiry_drops_member/1,
-    ownership_events_on_membership_change/1
+    ownership_events_on_membership_change/1,
+    malformed_gossip_does_not_crash/1
 ]).
 
 -define(RING, 128).
@@ -35,7 +36,8 @@ all() ->
         adding_a_node_moves_only_its_partitions,
         removing_a_node_moves_only_its_partitions,
         lease_expiry_drops_member,
-        ownership_events_on_membership_change
+        ownership_events_on_membership_change,
+        malformed_gossip_does_not_crash
     ].
 
 init_per_testcase(_Case, Config) ->
@@ -53,6 +55,38 @@ end_per_testcase(_Case, _Config) ->
 %%====================================================================
 %% Pure HRW properties (deterministic, no app/timing)
 %%====================================================================
+
+%% Malformed peer gossip (heartbeat deltas and full-sync snapshots) must
+%% never crash the shard or the shared HLC server; bad entries are dropped
+%% and a well-formed heartbeat still registers a member.
+malformed_gossip_does_not_crash(_Config) ->
+    H = mycelium_hlc:now(),
+    GoodDots = #{{'peer@h', H} => true},
+    Now = erlang:system_time(millisecond),
+    Bad = [
+        not_a_map,
+        #{n1 => {value, {alive, Now}, not_a_map}},
+        #{n2 => {value, {alive, Now}, #{}}},
+        #{n3 => {value, {alive, Now}, #{bad => true}}},
+        #{n4 => {tombstone, not_a_timestamp}},
+        #{n5 => garbage},
+        %% wrapper ok, leaf not {alive, integer}
+        #{n6 => {value, {alive, not_an_int}, GoodDots}},
+        #{n7 => {value, not_alive, GoodDots}}
+    ],
+    [mycelium_shard:replica_merge_delta(mycelium_members_replica, B) || B <- Bad],
+    %% Full-sync snapshots are plain lease maps; feed bad shapes.
+    mycelium_shard:replica_apply_full_sync(mycelium_members_replica, not_a_map),
+    mycelium_shard:replica_apply_full_sync(mycelium_members_replica, #{<<"bin">> => Now}),
+    mycelium_shard:replica_apply_full_sync(mycelium_members_replica, #{anode => not_an_int}),
+    _ = sys:get_state(mycelium_shard),
+    ?assert(is_process_alive(whereis(mycelium_shard))),
+    ?assert(is_process_alive(whereis(mycelium_hlc))),
+    %% A well-formed remote heartbeat still registers a member.
+    Good = #{'good@127.0.0.1' => {value, {alive, Now}, GoodDots}},
+    mycelium_shard:replica_merge_delta(mycelium_members_replica, Good),
+    _ = sys:get_state(mycelium_shard),
+    ?assert(lists:member('good@127.0.0.1', mycelium:members())).
 
 owner_is_order_independent(_Config) ->
     Members = [a@h, b@h, c@h, d@h, e@h],

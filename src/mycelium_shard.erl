@@ -241,7 +241,11 @@ handle_call(_Request, _From, State) ->
 handle_cast({merge_delta, Delta}, State) ->
     Now = now_ms(),
     Skew = State#state.skew_ms,
-    %% Accept only plausible heartbeats. The guard is a FUTURE bound:
+    %% Validate the OR-Map wrapper (dots/HLCs) and the {alive, Emit} leaf
+    %% first, so a malformed peer delta cannot crash absorb_clock or the
+    %% shared mycelium_hlc server.
+    Valid = mycelium_crdt_wire:accept(Delta, fun valid_alive/1),
+    %% Then accept only plausible heartbeats. The guard is a FUTURE bound:
     %% reject `Emit > Now + skew' so a fast clock cannot pin a dead node.
     %% Past-staleness is handled by the TTL, not here.
     Accepted = maps:filter(
@@ -249,7 +253,7 @@ handle_cast({merge_delta, Delta}, State) ->
             (_Node, {value, {alive, Emit}, _Dots}) -> Emit =< Now + Skew;
             (_Node, _Other) -> false
         end,
-        Delta
+        Valid
     ),
     %% Filter BEFORE absorbing: mycelium_hlc:update/1 accepts future
     %% timestamps, so absorbing a rejected far-future dot would still
@@ -266,20 +270,27 @@ handle_cast({merge_delta, Delta}, State) ->
         Accepted
     ),
     {noreply, recompute(State#state{leases = Leases})};
-handle_cast({apply_full_sync, Snapshot}, State) ->
+handle_cast({apply_full_sync, Snapshot}, State) when is_map(Snapshot) ->
     Now = now_ms(),
     Skew = State#state.skew_ms,
-    %% Snapshot carries plain wall-clock leases (no OR-Map dots), so
-    %% there is nothing to absorb; just future-bound and LWW-merge.
+    %% Snapshot carries plain wall-clock leases (no OR-Map dots), so there is
+    %% nothing to absorb; guard the shape (node atom + integer ms), then
+    %% future-bound and LWW-merge.
     Leases = maps:fold(
         fun
-            (Node, Emit, Acc) when Emit =< Now + Skew -> lww(Node, Emit, Acc);
-            (_Node, _Emit, Acc) -> Acc
+            (Node, Emit, Acc) when
+                is_atom(Node), is_integer(Emit), Emit =< Now + Skew
+            ->
+                lww(Node, Emit, Acc);
+            (_Node, _Emit, Acc) ->
+                Acc
         end,
         State#state.leases,
         Snapshot
     ),
     {noreply, recompute(State#state{leases = Leases})};
+handle_cast({apply_full_sync, _NotAMap}, State) ->
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -353,6 +364,11 @@ lww(Node, Emit, Acc) ->
         true -> maps:put(Node, Emit, Acc);
         false -> Acc
     end.
+
+%% Leaf validator for a gossiped heartbeat value: {alive, EmitMs}. Used by
+%% mycelium_crdt_wire to reject malformed peer values before the OR-Map merge.
+valid_alive({alive, Emit}) when is_integer(Emit) -> true;
+valid_alive(_) -> false.
 
 compute_owned(Members, RingSize) ->
     Self = node(),
