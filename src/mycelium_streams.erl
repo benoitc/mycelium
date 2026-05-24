@@ -45,6 +45,15 @@
 %% Stream-refused application error code, used when no acceptor is
 %% registered for an inbound stream's tag.
 -define(REFUSED_CODE, 16#100).
+%% On connect we register as the dist controller's user-stream acceptor.
+%% nodeup can fire before the controller is reachable, and the controller
+%% refuses (resets) any inbound user stream that arrives before an acceptor
+%% is registered. Retry on a short cadence so a peer can accept tagged
+%% streams within a few ms of connecting, instead of waiting up to one
+%% reconcile period. The periodic reconcile stays as a long-interval
+%% backstop.
+-define(ACCEPTOR_RETRY_MS, 25).
+-define(ACCEPTOR_RETRY_ATTEMPTS, 20).
 
 -record(state, {
     %% Tag -> handler pid.
@@ -154,6 +163,30 @@ register_self_as_acceptor(Node) ->
             error
     end.
 
+%% @private
+%% Register as the user-stream acceptor for Node, retrying on a short
+%% cadence while the dist controller isn't reachable yet (nodeup can
+%% precede it). Registration is idempotent on the controller, so the
+%% periodic reconcile re-running this is harmless. Stops once registered,
+%% the node is gone, or the attempt budget is exhausted (reconcile then
+%% covers it).
+ensure_acceptor(_Node, 0) ->
+    ok;
+ensure_acceptor(Node, N) ->
+    case lists:member(Node, nodes()) of
+        false ->
+            ok;
+        true ->
+            case register_self_as_acceptor(Node) of
+                ok ->
+                    ok;
+                error ->
+                    erlang:send_after(?ACCEPTOR_RETRY_MS, self(),
+                                      {retry_acceptor, Node, N - 1}),
+                    ok
+            end
+    end.
+
 handle_call({register, Tag, Pid}, _From,
             S = #state{acceptors = A, acceptor_mons = M}) ->
     case maps:find(Tag, A) of
@@ -196,13 +229,19 @@ handle_cast(_Msg, S) ->
 %% controller has us in the acceptor pool before any inbound user
 %% stream from this peer can arrive.
 handle_info({nodeup, Node}, S) when is_atom(Node) ->
-    _ = register_self_as_acceptor(Node),
+    ensure_acceptor(Node, ?ACCEPTOR_RETRY_ATTEMPTS),
     {noreply, S};
 handle_info({nodedown, _Node}, S) ->
     {noreply, S};
 
 handle_info({peer_up, Node}, S) when is_atom(Node) ->
-    _ = register_self_as_acceptor(Node),
+    ensure_acceptor(Node, ?ACCEPTOR_RETRY_ATTEMPTS),
+    {noreply, S};
+
+%% Short-cadence retry of the acceptor registration, scheduled when a
+%% nodeup/peer_up fired before the dist controller was reachable.
+handle_info({retry_acceptor, Node, N}, S) when is_atom(Node) ->
+    ensure_acceptor(Node, N),
     {noreply, S};
 handle_info({peer_down, _Node, _Reason}, S) ->
     {noreply, S};
