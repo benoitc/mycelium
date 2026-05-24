@@ -13,7 +13,11 @@
 -define(assertNot(E), (false = (E))).
 -define(assertEqual(E, A), (E = A)).
 -define(assertNotEqual(E, A), (true = (E =/= A))).
--define(assertMatch(P, E), (case E of P -> ok end)).
+-define(assertMatch(P, E),
+    (case E of
+        P -> ok
+    end)
+).
 
 %% CT callbacks
 -export([all/0, groups/0, suite/0]).
@@ -91,10 +95,16 @@ suite() ->
     [{timetrap, {minutes, 5}}].
 
 all() ->
-    [{group, backoff}, {group, peer_failure}, {group, cleanup},
-     {group, churn_tracking}, {group, eligibility},
-     {group, adaptive_shuffle}, {group, race_conditions},
-     {group, properties}].
+    [
+        {group, backoff},
+        {group, peer_failure},
+        {group, cleanup},
+        {group, churn_tracking},
+        {group, eligibility},
+        {group, adaptive_shuffle},
+        {group, race_conditions},
+        {group, properties}
+    ].
 
 groups() ->
     [
@@ -215,10 +225,14 @@ make_test_state(PassiveView, Opts) ->
 test_backoff_calculation(_Config) ->
     %% Verify base * 2^fail_count formula
     Base = 1000,
-    ?assertEqual(2000, Base * (1 bsl 1)),   %% 1 failure: 1000 * 2
-    ?assertEqual(4000, Base * (1 bsl 2)),   %% 2 failures: 1000 * 4
-    ?assertEqual(8000, Base * (1 bsl 3)),   %% 3 failures: 1000 * 8
-    ?assertEqual(16000, Base * (1 bsl 4)),  %% 4 failures: 1000 * 16
+    %% 1 failure: 1000 * 2
+    ?assertEqual(2000, Base * (1 bsl 1)),
+    %% 2 failures: 1000 * 4
+    ?assertEqual(4000, Base * (1 bsl 2)),
+    %% 3 failures: 1000 * 8
+    ?assertEqual(8000, Base * (1 bsl 3)),
+    %% 4 failures: 1000 * 16
+    ?assertEqual(16000, Base * (1 bsl 4)),
     ok.
 
 test_backoff_cap(_Config) ->
@@ -227,7 +241,9 @@ test_backoff_cap(_Config) ->
     Now = erlang:monotonic_time(millisecond),
 
     %% Create peer with very high failure count
-    Peer = make_test_peer(Node, 19, undefined, Now),  %% 1000 * 2^20 would be > 300000
+
+    %% 1000 * 2^20 would be > 300000
+    Peer = make_test_peer(Node, 19, undefined, Now),
     State = make_test_state(#{Node => Peer}, #{base_backoff_ms => 1000}),
 
     %% Record failure - should cap backoff
@@ -295,7 +311,8 @@ test_failure_sets_backoff(_Config) ->
 
     %% Should have backoff_until set (base * 2^1 = 2000ms after now)
     ?assertNotEqual(undefined, UpdatedPeer#peer.backoff_until),
-    ExpectedBackoff = Now + (1000 * (1 bsl 1)),  %% ~2000ms
+    %% ~2000ms
+    ExpectedBackoff = Now + (1000 * (1 bsl 1)),
     %% Allow some time drift
     ?assert(abs(UpdatedPeer#peer.backoff_until - ExpectedBackoff) < 100),
     ok.
@@ -325,15 +342,18 @@ test_failure_unknown_peer(_Config) ->
 
 test_cleanup_removes_old_entries(_Config) ->
     Now = erlang:monotonic_time(millisecond),
-    MaxAge = 300000,  %% 5 minutes
+    %% 5 minutes
+    MaxAge = 300000,
 
     %% Old peer - should be removed
     OldPeer = make_test_peer(old_node, 0, undefined, Now - MaxAge - 1000),
     %% Recent peer - should be kept
     RecentPeer = make_test_peer(recent_node, 0, undefined, Now - 1000),
 
-    State = make_test_state(#{old_node => OldPeer, recent_node => RecentPeer},
-                            #{passive_max_age_ms => MaxAge}),
+    State = make_test_state(
+        #{old_node => OldPeer, recent_node => RecentPeer},
+        #{passive_max_age_ms => MaxAge}
+    ),
 
     CleanedState = mycelium_hyparview:do_cleanup_passive_view(State),
 
@@ -349,8 +369,10 @@ test_cleanup_removes_failed_entries(_Config) ->
     %% Peer with low failures - should be kept
     OkPeer = make_test_peer(ok_node, 2, undefined, Now),
 
-    State = make_test_state(#{failed_node => FailedPeer, ok_node => OkPeer},
-                            #{max_fail_count => 5}),
+    State = make_test_state(
+        #{failed_node => FailedPeer, ok_node => OkPeer},
+        #{max_fail_count => 5}
+    ),
 
     CleanedState = mycelium_hyparview:do_cleanup_passive_view(State),
 
@@ -365,8 +387,10 @@ test_cleanup_keeps_recent(_Config) ->
     %% Very recent peer
     RecentPeer = make_test_peer(recent_node, 0, undefined, Now - 100),
 
-    State = make_test_state(#{recent_node => RecentPeer},
-                            #{passive_max_age_ms => MaxAge}),
+    State = make_test_state(
+        #{recent_node => RecentPeer},
+        #{passive_max_age_ms => MaxAge}
+    ),
 
     CleanedState = mycelium_hyparview:do_cleanup_passive_view(State),
 
@@ -476,8 +500,10 @@ test_eligible_skips_max_failed(_Config) ->
     %% Eligible peer
     EligiblePeer = make_test_peer(eligible, 0, undefined, Now - 1000),
 
-    State = make_test_state(#{max_failed => MaxFailedPeer, eligible => EligiblePeer},
-                            #{max_fail_count => 5}),
+    State = make_test_state(
+        #{max_failed => MaxFailedPeer, eligible => EligiblePeer},
+        #{max_fail_count => 5}
+    ),
 
     case mycelium_hyparview:find_eligible_passive_peer(State, Now) of
         {ok, Node, _Peer} ->
@@ -512,8 +538,10 @@ test_eligible_none_available(_Config) ->
     BackedOff1 = make_test_peer(b1, 1, Now + 5000, Now - 1000),
     MaxFailed = make_test_peer(mf, 5, undefined, Now - 1000),
 
-    State = make_test_state(#{b1 => BackedOff1, mf => MaxFailed},
-                            #{max_fail_count => 5}),
+    State = make_test_state(
+        #{b1 => BackedOff1, mf => MaxFailed},
+        #{max_fail_count => 5}
+    ),
 
     Result = mycelium_hyparview:find_eligible_passive_peer(State, Now),
     ?assertEqual(none, Result),
@@ -525,11 +553,14 @@ test_eligible_none_available(_Config) ->
 
 test_shuffle_high_churn_period(_Config) ->
     %% Simulate high churn by sending many join events
-    lists:foreach(fun(N) ->
-        NodeName = list_to_atom("n" ++ integer_to_list(N)),
-        Peer = #peer{id = NodeName, connected = false, priority = low},
-        gen_server:cast(mycelium_hyparview, {protocol_msg, {join, Peer}, NodeName})
-    end, lists:seq(1, 15)),
+    lists:foreach(
+        fun(N) ->
+            NodeName = list_to_atom("n" ++ integer_to_list(N)),
+            Peer = #peer{id = NodeName, connected = false, priority = low},
+            gen_server:cast(mycelium_hyparview, {protocol_msg, {join, Peer}, NodeName})
+        end,
+        lists:seq(1, 15)
+    ),
 
     timer:sleep(100),
 
@@ -605,10 +636,14 @@ test_rapid_failures(_Config) ->
     State0 = make_test_state(#{Node => Peer}, #{max_fail_count => 5}),
 
     %% Simulate rapid failures in quick succession
-    FinalPassive = lists:foldl(fun(_, Passive) ->
-        CurrentState = State0#view_state{passive_view = Passive},
-        mycelium_hyparview:record_peer_failure(Node, CurrentState)
-    end, State0#view_state.passive_view, lists:seq(1, 10)),
+    FinalPassive = lists:foldl(
+        fun(_, Passive) ->
+            CurrentState = State0#view_state{passive_view = Passive},
+            mycelium_hyparview:record_peer_failure(Node, CurrentState)
+        end,
+        State0#view_state.passive_view,
+        lists:seq(1, 10)
+    ),
 
     %% Peer should be removed after max failures (handled gracefully)
     ?assertNot(maps:is_key(Node, FinalPassive)),
@@ -647,60 +682,80 @@ test_concurrent_churn_events(_Config) ->
 %%====================================================================
 
 prop_backoff_always_positive(_Config) ->
-    Prop = ?FORALL({Base, FailCount}, {pos_integer(), non_neg_integer()},
+    Prop = ?FORALL(
+        {Base, FailCount},
+        {pos_integer(), non_neg_integer()},
         begin
             %% Cap fail_count to avoid overflow
             SafeFailCount = min(FailCount, 20),
             BackoffMs = Base * (1 bsl SafeFailCount),
             CappedBackoff = min(BackoffMs, 300000),
             CappedBackoff > 0
-        end),
+        end
+    ),
     ?assert(proper:quickcheck(Prop, [{numtests, 100}, {to_file, user}])),
     ok.
 
 prop_cleanup_never_corrupts(_Config) ->
-    Prop = ?FORALL({NumPeers, MaxAge}, {range(1, 50), range(1000, 300000)},
+    Prop = ?FORALL(
+        {NumPeers, MaxAge},
+        {range(1, 50), range(1000, 300000)},
         begin
             Now = erlang:monotonic_time(millisecond),
             %% Generate random peers
-            Peers = lists:foldl(fun(I, Acc) ->
-                Node = list_to_atom("node_" ++ integer_to_list(I)),
-                %% Random last_seen: either undefined, recent, or old
-                HalfAge = max(1, MaxAge div 2),
-                LastSeen = case rand:uniform(3) of
-                    1 -> undefined;
-                    2 -> Now - rand:uniform(HalfAge);
-                    3 -> Now - MaxAge - rand:uniform(10000)
+            Peers = lists:foldl(
+                fun(I, Acc) ->
+                    Node = list_to_atom("node_" ++ integer_to_list(I)),
+                    %% Random last_seen: either undefined, recent, or old
+                    HalfAge = max(1, MaxAge div 2),
+                    LastSeen =
+                        case rand:uniform(3) of
+                            1 -> undefined;
+                            2 -> Now - rand:uniform(HalfAge);
+                            3 -> Now - MaxAge - rand:uniform(10000)
+                        end,
+                    FailCount = rand:uniform(10) - 1,
+                    Peer = make_test_peer(Node, FailCount, undefined, LastSeen),
+                    maps:put(Node, Peer, Acc)
                 end,
-                FailCount = rand:uniform(10) - 1,
-                Peer = make_test_peer(Node, FailCount, undefined, LastSeen),
-                maps:put(Node, Peer, Acc)
-            end, #{}, lists:seq(1, NumPeers)),
+                #{},
+                lists:seq(1, NumPeers)
+            ),
 
             State = make_test_state(Peers, #{passive_max_age_ms => MaxAge}),
             CleanedState = mycelium_hyparview:do_cleanup_passive_view(State),
 
             %% Verify result is a valid map
             is_map(CleanedState#view_state.passive_view) andalso
-            %% All remaining peers should be valid
-            lists:all(fun({_N, P}) -> is_record(P, peer) end,
-                      maps:to_list(CleanedState#view_state.passive_view))
-        end),
+                %% All remaining peers should be valid
+                lists:all(
+                    fun({_N, P}) -> is_record(P, peer) end,
+                    maps:to_list(CleanedState#view_state.passive_view)
+                )
+        end
+    ),
     ?assert(proper:quickcheck(Prop, [{numtests, 50}, {to_file, user}])),
     ok.
 
 prop_churn_counts_non_negative(_Config) ->
-    Prop = ?FORALL(Events, list(oneof([join, leave])),
+    Prop = ?FORALL(
+        Events,
+        list(oneof([join, leave])),
         begin
             Now = erlang:monotonic_time(millisecond),
             State0 = make_test_state(#{}, #{churn_window_start => Now}),
 
-            FinalState = lists:foldl(fun(Event, S) ->
-                mycelium_hyparview:record_churn_event(Event, S)
-            end, State0, Events),
+            FinalState = lists:foldl(
+                fun(Event, S) ->
+                    mycelium_hyparview:record_churn_event(Event, S)
+                end,
+                State0,
+                Events
+            ),
 
             FinalState#view_state.recent_joins >= 0 andalso
-            FinalState#view_state.recent_leaves >= 0
-        end),
+                FinalState#view_state.recent_leaves >= 0
+        end
+    ),
     ?assert(proper:quickcheck(Prop, [{numtests, 100}, {to_file, user}])),
     ok.

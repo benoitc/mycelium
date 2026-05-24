@@ -60,15 +60,24 @@
 -define(REPLICA, mycelium_reminder_replica).
 
 %% Public API
--export([remind/3, remind_after/3, cancel_reminder/1, subscribe/1,
-         unsubscribe/1]).
+-export([
+    remind/3,
+    remind_after/3,
+    cancel_reminder/1,
+    subscribe/1,
+    unsubscribe/1
+]).
 
 %% Internal API
 -export([start_link/0]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/2, replica_apply_full_sync/2,
-         replica_full_sync_snapshot/1, replica_remove_node/2]).
+-export([
+    replica_merge_delta/2,
+    replica_apply_full_sync/2,
+    replica_full_sync_snapshot/1,
+    replica_remove_node/2
+]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -84,24 +93,24 @@
 -define(STORE, mycelium_reminder).
 -define(DEFAULT_DATA_DIR, "data/reminders").
 
--type key()     :: term().
+-type key() :: term().
 -type payload() :: term().
--type fence()   :: non_neg_integer().
+-type fence() :: non_neg_integer().
 
 -export_type([fence/0]).
 
 -record(state, {
-    scan_ms          :: pos_integer(),
+    scan_ms :: pos_integer(),
     tombstone_ttl_ms :: non_neg_integer(),
-    reminders   = mycelium_ormap:new() :: mycelium_ormap:ormap(),
+    reminders = mycelium_ormap:new() :: mycelium_ormap:ormap(),
     %% Locally armed timers: Key -> {TimerRef, VersionHLC}
-    timers      = #{} :: #{key() => {reference(), mycelium_hlc:timestamp()}},
+    timers = #{} :: #{key() => {reference(), mycelium_hlc:timestamp()}},
     subscribers = #{} :: #{pid() => reference()},
-    watch       = #{} :: mycelium_source_monitor:watch(),
+    watch = #{} :: mycelium_source_monitor:watch(),
     %% Disk persistence: the WAL+snapshot handle, and whether the store
     %% changed since the last snapshot (so the scan only snapshots on churn).
-    log         = undefined :: mycelium_replica_log:handle(),
-    dirty       = false :: boolean()
+    log = undefined :: mycelium_replica_log:handle(),
+    dirty = false :: boolean()
 }).
 
 %%====================================================================
@@ -182,8 +191,13 @@ init([]) ->
     arm_scan(Scan),
     %% Recovered reminders we own are armed by the first scan (which also
     %% resolves owners once the ring reforms).
-    {ok, #state{scan_ms = Scan, tombstone_ttl_ms = TombTtl, watch = Watch,
-                reminders = Reminders, log = Log}}.
+    {ok, #state{
+        scan_ms = Scan,
+        tombstone_ttl_ms = TombTtl,
+        watch = Watch,
+        reminders = Reminders,
+        log = Log
+    }}.
 
 %% Open the persistent store and recover the OR-Map. A failure (e.g. an
 %% unwritable dir) is logged and degrades to in-memory only, never fatal.
@@ -194,23 +208,23 @@ open_store() ->
             ok = mycelium_ormap:absorb_clock(Map),
             {Log, Map};
         {error, Reason} ->
-            logger:warning("mycelium_reminder: persistence disabled, open "
-                           "failed: ~p", [Reason]),
+            logger:warning(
+                "mycelium_reminder: persistence disabled, open "
+                "failed: ~p",
+                [Reason]
+            ),
             {undefined, mycelium_ormap:new()}
     end.
 
 handle_call({remind, Key, FireAtMs, Payload}, _From, State) ->
     {reply, ok, do_remind(Key, FireAtMs, Payload, State)};
-
 handle_call({remind_after, Key, DelayMs, Payload}, _From, State) ->
     {reply, ok, do_remind(Key, now_ms() + DelayMs, Payload, State)};
-
 handle_call({cancel, Key}, _From, State) ->
     Reminders = mycelium_ormap:remove(Key, State#state.reminders),
     mycelium_replica:broadcast_update(?REPLICA, {remove, Key}),
     State1 = persist_key(Key, sync, State#state{reminders = Reminders}),
     {reply, ok, disarm(Key, State1)};
-
 handle_call({subscribe, Pid}, _From, State) ->
     case maps:is_key(Pid, State#state.subscribers) of
         true ->
@@ -220,7 +234,6 @@ handle_call({subscribe, Pid}, _From, State) ->
             Subs = maps:put(Pid, Ref, State#state.subscribers),
             {reply, ok, State#state{subscribers = Subs}}
     end;
-
 handle_call({unsubscribe, Pid}, _From, State) ->
     case maps:take(Pid, State#state.subscribers) of
         {Ref, Subs} ->
@@ -229,23 +242,20 @@ handle_call({unsubscribe, Pid}, _From, State) ->
         error ->
             {reply, ok, State}
     end;
-
 handle_call(snapshot, _From, State) ->
-    Reply = case mycelium_ormap:is_empty(State#state.reminders) of
-        true  -> empty;
-        false -> {sync, State#state.reminders}
-    end,
+    Reply =
+        case mycelium_ormap:is_empty(State#state.reminders) of
+            true -> empty;
+            false -> {sync, State#state.reminders}
+        end,
     {reply, Reply, State};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
 handle_cast({merge_delta, Delta}, State) ->
     {noreply, ingest(Delta, State)};
-
 handle_cast({apply_full_sync, Snapshot}, State) ->
     {noreply, ingest(Snapshot, State)};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -254,18 +264,15 @@ handle_info({fire, Key, H}, State) ->
     State1 = clear_spent_timer(Key, H, State),
     case should_fire(Key, H, State1) of
         {true, Payload} -> {noreply, fire(Key, Payload, H, State1)};
-        false           -> {noreply, State1}
+        false -> {noreply, State1}
     end;
-
 %% We became the owner of partition P: arm its reminders (this is how a
 %% survivor picks up a dead owner's un-fired reminders).
 handle_info({mycelium_shard, {acquired, P}}, State) ->
     {noreply, reconcile_keys(keys_in_partition(P, State), State)};
-
 %% We lost partition P: disarm its reminders.
 handle_info({mycelium_shard, {released, P}}, State) ->
     {noreply, reconcile_keys(keys_in_partition(P, State), State)};
-
 %% Safety sweep: re-arm anything we own and missed, disarm anything we no
 %% longer own, re-arm far-future reminders as their fire time nears, and GC
 %% old fire/cancel tombstones so the replicated store stays bounded.
@@ -280,17 +287,16 @@ handle_info(scan, State) ->
     Dirty = State1#state.dirty orelse map_size(Reminders) =/= map_size(Old),
     State2 = State1#state{reminders = Reminders, dirty = false},
     case Dirty of
-        true  -> _ = mycelium_replica_log:snapshot(State2#state.log, Reminders);
+        true -> _ = mycelium_replica_log:snapshot(State2#state.log, Reminders);
         false -> ok
     end,
     arm_scan(State2#state.scan_ms),
     {noreply, State2};
-
 %% Re-subscribe if a watched source (the shard) restarted.
 handle_info({mycelium_source_monitor, retry, Source}, State) ->
     {noreply, State#state{
-        watch = mycelium_source_monitor:retry(Source, State#state.watch)}};
-
+        watch = mycelium_source_monitor:retry(Source, State#state.watch)
+    }};
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case mycelium_source_monitor:down(Ref, State#state.watch) of
         {down, _Source, Watch} ->
@@ -304,7 +310,6 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
                     {noreply, State}
             end
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -356,7 +361,7 @@ reconcile_key(Key, State) ->
     case mycelium_ormap:get(Key, State#state.reminders) of
         {ok, {FireAt, _Payload, #timestamp{} = H}} when is_integer(FireAt) ->
             case mycelium_shard:place(Key) =:= node() of
-                true  -> arm(Key, FireAt, H, State);
+                true -> arm(Key, FireAt, H, State);
                 false -> disarm(Key, State)
             end;
         %% Not a live, well-formed reminder (tombstoned, or a malformed
@@ -397,7 +402,7 @@ disarm(Key, State) ->
 clear_spent_timer(Key, H, State) ->
     case maps:get(Key, State#state.timers, undefined) of
         {_Ref, H} -> State#state{timers = maps:remove(Key, State#state.timers)};
-        _         -> State
+        _ -> State
     end.
 
 %% Fire only if the entry still exists at the same version, we still own
@@ -407,9 +412,11 @@ clear_spent_timer(Key, H, State) ->
 should_fire(Key, H, State) ->
     case mycelium_ormap:get(Key, State#state.reminders) of
         {ok, {FireAt, Payload, H}} ->
-            case mycelium_shard:place(Key) =:= node()
-                 andalso now_ms() >= FireAt of
-                true  -> {true, Payload};
+            case
+                mycelium_shard:place(Key) =:= node() andalso
+                    now_ms() >= FireAt
+            of
+                true -> {true, Payload};
                 false -> false
             end;
         _ ->
@@ -429,7 +436,8 @@ fire(Key, Payload, H, State) ->
 notify(Subs, Key, Payload, Fence) ->
     maps:foreach(
         fun(Pid, _Ref) -> Pid ! {mycelium_reminder, Key, Payload, Fence} end,
-        Subs).
+        Subs
+    ).
 
 %% Append one key's current entry (value or tombstone) to the WAL, marking
 %% the store dirty. `sync' forces the write to disk before returning (used
@@ -441,7 +449,7 @@ persist_keys(Keys, Sync, #state{log = Log, reminders = Reminders} = State) ->
     Delta = entries_of(Keys, Reminders),
     ok = mycelium_replica_log:append(Log, Delta),
     case Sync of
-        sync   -> ok = mycelium_replica_log:sync(Log);
+        sync -> ok = mycelium_replica_log:sync(Log);
         nosync -> ok
     end,
     State#state{dirty = State#state.dirty orelse map_size(Delta) > 0}.
@@ -452,13 +460,19 @@ entries_of(Keys, Map) ->
         fun(Key, Acc) ->
             case mycelium_ormap:get_entry(Key, Map) of
                 {ok, Entry} -> Acc#{Key => Entry};
-                not_found   -> Acc
+                not_found -> Acc
             end
-        end, #{}, Keys).
+        end,
+        #{},
+        Keys
+    ).
 
 keys_in_partition(P, State) ->
-    [K || K <- mycelium_ormap:keys(State#state.reminders),
-          mycelium_shard:partition(K) =:= P].
+    [
+        K
+     || K <- mycelium_ormap:keys(State#state.reminders),
+        mycelium_shard:partition(K) =:= P
+    ].
 
 arm_scan(Scan) ->
     erlang:send_after(Scan, self(), scan).

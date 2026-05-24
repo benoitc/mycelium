@@ -40,9 +40,13 @@ init([]) ->
 
     Sync = #{
         id => mycelium_registry_replica,
-        start => {mycelium_replica, start_link,
-                  [#{name => mycelium_registry_replica,
-                     callback => mycelium_registry}]},
+        start =>
+            {mycelium_replica, start_link, [
+                #{
+                    name => mycelium_registry_replica,
+                    callback => mycelium_registry
+                }
+            ]},
         restart => permanent,
         shutdown => 5000,
         type => worker,

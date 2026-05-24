@@ -10,8 +10,11 @@
 -include_lib("kernel/include/file.hrl").
 
 tmp_path() ->
-    Dir = filename:join(["/tmp", "mycelium_file_tests",
-                         integer_to_list(erlang:unique_integer([positive]))]),
+    Dir = filename:join([
+        "/tmp",
+        "mycelium_file_tests",
+        integer_to_list(erlang:unique_integer([positive]))
+    ]),
     ok = filelib:ensure_dir(filename:join(Dir, "dummy")),
     {Dir, filename:join(Dir, "secret")}.
 

@@ -30,15 +30,26 @@
 -behaviour(mycelium_replica).
 
 %% Public API (pure reads + subscription)
--export([place/1, owners/2, is_owner/1, partition/1, members/0,
-         subscribe/1, unsubscribe/1]).
+-export([
+    place/1,
+    owners/2,
+    is_owner/1,
+    partition/1,
+    members/0,
+    subscribe/1,
+    unsubscribe/1
+]).
 
 %% Internal API
 -export([start_link/0]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/2, replica_apply_full_sync/2,
-         replica_full_sync_snapshot/1, replica_remove_node/2]).
+-export([
+    replica_merge_delta/2,
+    replica_apply_full_sync/2,
+    replica_full_sync_snapshot/1,
+    replica_remove_node/2
+]).
 
 %% Internal (invoked by the replica callbacks; owner/2 also used by tests)
 -export([merge_delta/1, apply_full_sync/1, snapshot/0, owner/2]).
@@ -55,15 +66,15 @@
 -define(DEFAULT_SKEW_MS, 5000).
 
 -record(state, {
-    ring_size    :: pos_integer(),
+    ring_size :: pos_integer(),
     heartbeat_ms :: pos_integer(),
-    ttl_ms       :: pos_integer(),
-    skew_ms      :: non_neg_integer(),
-    leases   = #{} :: #{node() => integer()},
-    members  = []  :: [node()],
-    owned    = #{} :: #{non_neg_integer() => true},
+    ttl_ms :: pos_integer(),
+    skew_ms :: non_neg_integer(),
+    leases = #{} :: #{node() => integer()},
+    members = [] :: [node()],
+    owned = #{} :: #{non_neg_integer() => true},
     subscribers = #{} :: #{pid() => reference()},
-    watch    = #{} :: mycelium_source_monitor:watch()
+    watch = #{} :: mycelium_source_monitor:watch()
 }).
 
 %%====================================================================
@@ -80,8 +91,11 @@ place(Key) ->
 -spec owners(term(), pos_integer()) -> [node()].
 owners(Key, N) ->
     P = partition(Key),
-    Desc = lists:reverse(lists:sort(
-        [{erlang:phash2({Nd, P}), Nd} || Nd <- members()])),
+    Desc = lists:reverse(
+        lists:sort(
+            [{erlang:phash2({Nd, P}), Nd} || Nd <- members()]
+        )
+    ),
     [Nd || {_Score, Nd} <- lists:sublist(Desc, N)].
 
 %% @doc Whether this node currently owns `Key'.
@@ -100,11 +114,12 @@ partition(Key) ->
 -spec members() -> [node()].
 members() ->
     case ets:info(?TAB, name) of
-        undefined -> [];
+        undefined ->
+            [];
         _ ->
             case ets:lookup(?TAB, members) of
                 [{members, M}] -> M;
-                []             -> []
+                [] -> []
             end
     end.
 
@@ -159,9 +174,9 @@ snapshot() ->
 
 init([]) ->
     RingSize = cfg(ring_size, ?DEFAULT_RING_SIZE),
-    Hb       = cfg(member_heartbeat_ms, ?DEFAULT_HEARTBEAT_MS),
-    Ttl      = cfg(member_ttl_ms, ?DEFAULT_TTL_MS),
-    Skew     = cfg(member_skew_ms, ?DEFAULT_SKEW_MS),
+    Hb = cfg(member_heartbeat_ms, ?DEFAULT_HEARTBEAT_MS),
+    Ttl = cfg(member_ttl_ms, ?DEFAULT_TTL_MS),
+    Skew = cfg(member_skew_ms, ?DEFAULT_SKEW_MS),
     ?TAB = ets:new(?TAB, [named_table, protected, set, {read_concurrency, true}]),
     ets:insert(?TAB, {ring_size, RingSize}),
     %% Self is always live; seed the lease and publish before anyone
@@ -179,9 +194,16 @@ init([]) ->
     %% registered yet, and broadcast_update/2 is a cast that would be
     %% dropped. The first heartbeat fires from the timer.
     arm_timer(Hb),
-    {ok, #state{ring_size = RingSize, heartbeat_ms = Hb, ttl_ms = Ttl,
-                skew_ms = Skew, leases = Leases, members = Members,
-                owned = Owned, watch = Watch}}.
+    {ok, #state{
+        ring_size = RingSize,
+        heartbeat_ms = Hb,
+        ttl_ms = Ttl,
+        skew_ms = Skew,
+        leases = Leases,
+        members = Members,
+        owned = Owned,
+        watch = Watch
+    }}.
 
 handle_call({subscribe, Pid}, _From, State) ->
     case maps:is_key(Pid, State#state.subscribers) of
@@ -192,7 +214,6 @@ handle_call({subscribe, Pid}, _From, State) ->
             Subs = maps:put(Pid, Ref, State#state.subscribers),
             {reply, ok, State#state{subscribers = Subs}}
     end;
-
 handle_call({unsubscribe, Pid}, _From, State) ->
     case maps:take(Pid, State#state.subscribers) of
         {Ref, Subs} ->
@@ -201,18 +222,19 @@ handle_call({unsubscribe, Pid}, _From, State) ->
         error ->
             {reply, ok, State}
     end;
-
 handle_call(snapshot, _From, State) ->
     Now = now_ms(),
     Ttl = State#state.ttl_ms,
-    Live = maps:filter(fun(_N, Emit) -> Now - Emit =< Ttl end,
-                       State#state.leases),
-    Reply = case map_size(Live) of
-        0 -> empty;
-        _ -> {sync, Live}
-    end,
+    Live = maps:filter(
+        fun(_N, Emit) -> Now - Emit =< Ttl end,
+        State#state.leases
+    ),
+    Reply =
+        case map_size(Live) of
+            0 -> empty;
+            _ -> {sync, Live}
+        end,
     {reply, Reply, State};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -223,32 +245,41 @@ handle_cast({merge_delta, Delta}, State) ->
     %% reject `Emit > Now + skew' so a fast clock cannot pin a dead node.
     %% Past-staleness is handled by the TTL, not here.
     Accepted = maps:filter(
-        fun(_Node, {value, {alive, Emit}, _Dots}) -> Emit =< Now + Skew;
-           (_Node, _Other)                        -> false
-        end, Delta),
+        fun
+            (_Node, {value, {alive, Emit}, _Dots}) -> Emit =< Now + Skew;
+            (_Node, _Other) -> false
+        end,
+        Delta
+    ),
     %% Filter BEFORE absorbing: mycelium_hlc:update/1 accepts future
     %% timestamps, so absorbing a rejected far-future dot would still
     %% move our clock forward.
     ok = mycelium_ormap:absorb_clock(Accepted),
     Leases = maps:fold(
-        fun(Node, {value, {alive, Emit}, _Dots}, Acc) ->
+        fun
+            (Node, {value, {alive, Emit}, _Dots}, Acc) ->
                 lww(Node, Emit, Acc);
-           (_Node, _Other, Acc) ->
+            (_Node, _Other, Acc) ->
                 Acc
-        end, State#state.leases, Accepted),
+        end,
+        State#state.leases,
+        Accepted
+    ),
     {noreply, recompute(State#state{leases = Leases})};
-
 handle_cast({apply_full_sync, Snapshot}, State) ->
     Now = now_ms(),
     Skew = State#state.skew_ms,
     %% Snapshot carries plain wall-clock leases (no OR-Map dots), so
     %% there is nothing to absorb; just future-bound and LWW-merge.
     Leases = maps:fold(
-        fun(Node, Emit, Acc) when Emit =< Now + Skew -> lww(Node, Emit, Acc);
-           (_Node, _Emit, Acc)                       -> Acc
-        end, State#state.leases, Snapshot),
+        fun
+            (Node, Emit, Acc) when Emit =< Now + Skew -> lww(Node, Emit, Acc);
+            (_Node, _Emit, Acc) -> Acc
+        end,
+        State#state.leases,
+        Snapshot
+    ),
     {noreply, recompute(State#state{leases = Leases})};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -256,20 +287,17 @@ handle_info(heartbeat, State) ->
     State1 = do_heartbeat(State),
     arm_timer(State1#state.heartbeat_ms),
     {noreply, State1};
-
 %% A new peer: gossip our liveness immediately to speed convergence
 %% (the replica also full-syncs the member set on peer_up).
 handle_info({mycelium_event, {peer_up, _Node}}, State) ->
     {noreply, do_heartbeat(State)};
-
 handle_info({mycelium_event, _Other}, State) ->
     {noreply, State};
-
 %% Re-subscribe if a watched source (hyparview events) restarted.
 handle_info({mycelium_source_monitor, retry, Source}, State) ->
     {noreply, State#state{
-        watch = mycelium_source_monitor:retry(Source, State#state.watch)}};
-
+        watch = mycelium_source_monitor:retry(Source, State#state.watch)
+    }};
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case mycelium_source_monitor:down(Ref, State#state.watch) of
         {down, _Source, Watch} ->
@@ -283,7 +311,6 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
                     {noreply, State}
             end
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -306,8 +333,10 @@ do_heartbeat(State) ->
 recompute(State) ->
     Now = now_ms(),
     Ttl = State#state.ttl_ms,
-    Leases = maps:filter(fun(_N, Emit) -> Now - Emit =< Ttl end,
-                         State#state.leases),
+    Leases = maps:filter(
+        fun(_N, Emit) -> Now - Emit =< Ttl end,
+        State#state.leases
+    ),
     Members = lists:sort(maps:keys(Leases)),
     case Members =:= State#state.members of
         true ->
@@ -321,15 +350,19 @@ recompute(State) ->
 
 lww(Node, Emit, Acc) ->
     case Emit > maps:get(Node, Acc, 0) of
-        true  -> maps:put(Node, Emit, Acc);
+        true -> maps:put(Node, Emit, Acc);
         false -> Acc
     end.
 
 compute_owned(Members, RingSize) ->
     Self = node(),
     maps:from_list(
-        [{P, true} || P <- lists:seq(0, RingSize - 1),
-                      owner(P, Members) =:= Self]).
+        [
+            {P, true}
+         || P <- lists:seq(0, RingSize - 1),
+            owner(P, Members) =:= Self
+        ]
+    ).
 
 emit_changes(OldOwned, NewOwned, Subs) ->
     Acquired = maps:keys(maps:without(maps:keys(OldOwned), NewOwned)),
@@ -351,11 +384,12 @@ owner(P, Members) ->
 
 ring_size() ->
     case ets:info(?TAB, name) of
-        undefined -> ?DEFAULT_RING_SIZE;
+        undefined ->
+            ?DEFAULT_RING_SIZE;
         _ ->
             case ets:lookup(?TAB, ring_size) of
                 [{ring_size, R}] -> R;
-                []               -> ?DEFAULT_RING_SIZE
+                [] -> ?DEFAULT_RING_SIZE
             end
     end.
 

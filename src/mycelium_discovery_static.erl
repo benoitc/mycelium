@@ -24,18 +24,20 @@
 
 lookup(Node, _Host) ->
     case lists:keyfind(Node, 1, static_nodes()) of
-        {Node, {Addr, Port}}  -> {ok, {Addr, Port}};
-        {Node, Addr, Port}    -> {ok, {Addr, Port}};
-        false                 -> {error, not_found}
+        {Node, {Addr, Port}} -> {ok, {Addr, Port}};
+        {Node, Addr, Port} -> {ok, {Addr, Port}};
+        false -> {error, not_found}
     end.
 
 list_nodes(_Host) ->
     Nodes = lists:filtermap(
         fun
             ({Node, {_, Port}}) -> {true, {Node, Port}};
-            ({Node, _, Port})   -> {true, {Node, Port}};
-            (_)                 -> false
-        end, static_nodes()),
+            ({Node, _, Port}) -> {true, {Node, Port}};
+            (_) -> false
+        end,
+        static_nodes()
+    ),
     {ok, Nodes}.
 
 %%====================================================================

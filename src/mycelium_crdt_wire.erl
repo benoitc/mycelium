@@ -41,8 +41,9 @@ valid_entry(Entry) ->
 
 %% @doc Wrapper validity plus an application leaf-value check.
 -spec valid_entry(term(), leaf_validator()) -> boolean().
-valid_entry({value, Value, Dots}, LeafFun)
-  when is_map(Dots), map_size(Dots) > 0 ->
+valid_entry({value, Value, Dots}, LeafFun) when
+    is_map(Dots), map_size(Dots) > 0
+->
     valid_dots(maps:keys(Dots)) andalso safe_bool(LeafFun, Value);
 valid_entry({tombstone, #timestamp{}}, _LeafFun) ->
     true;
@@ -77,14 +78,20 @@ ingest(Local, Incoming, LeafFun) ->
 %%====================================================================
 
 valid_dots(Keys) ->
-    lists:all(fun({N, #timestamp{}}) when is_atom(N) -> true;
-                 (_)                                 -> false
-              end, Keys).
+    lists:all(
+        fun
+            ({N, #timestamp{}}) when is_atom(N) -> true;
+            (_) -> false
+        end,
+        Keys
+    ).
 
 %% Run a possibly-app-supplied leaf validator without letting it crash the
 %% ingest of a whole delta: a throwing or non-boolean result rejects the
 %% one entry.
 safe_bool(Fun, Value) ->
-    try Fun(Value) =:= true
-    catch _:_ -> false
+    try
+        Fun(Value) =:= true
+    catch
+        _:_ -> false
     end.

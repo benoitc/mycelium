@@ -11,12 +11,18 @@
 -include_lib("eunit/include/eunit.hrl").
 
 with_tmp(F) ->
-    Tmp = filename:join("/tmp",
-                        ["mycelium_rotate_test_",
-                         integer_to_list(erlang:unique_integer([positive]))]),
+    Tmp = filename:join(
+        "/tmp",
+        [
+            "mycelium_rotate_test_",
+            integer_to_list(erlang:unique_integer([positive]))
+        ]
+    ),
     ok = filelib:ensure_dir(filename:join(Tmp, "dummy")),
-    try F(Tmp)
-    after _ = os:cmd("rm -rf " ++ Tmp)
+    try
+        F(Tmp)
+    after
+        _ = os:cmd("rm -rf " ++ Tmp)
     end.
 
 rotate_identity_fresh_test() ->

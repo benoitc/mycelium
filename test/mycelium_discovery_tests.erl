@@ -11,10 +11,15 @@
 setup() ->
     Dir = make_tmp_dir(),
     application:set_env(mycelium, discovery_dir, Dir),
-    application:set_env(mycelium, discovery_backends,
-                        [mycelium_discovery_static,
-                         mycelium_discovery_file,
-                         mycelium_discovery_dns]),
+    application:set_env(
+        mycelium,
+        discovery_backends,
+        [
+            mycelium_discovery_static,
+            mycelium_discovery_file,
+            mycelium_discovery_dns
+        ]
+    ),
     application:set_env(quic, dist, []),
     Dir.
 
@@ -26,8 +31,7 @@ teardown(Dir) ->
     ok.
 
 with(Test) ->
-    {setup, fun setup/0, fun teardown/1,
-     fun(Dir) -> [?_test(Test(Dir))] end}.
+    {setup, fun setup/0, fun teardown/1, fun(Dir) -> [?_test(Test(Dir))] end}.
 
 %%====================================================================
 %% file backend
@@ -37,10 +41,14 @@ file_register_lookup_roundtrip_test_() ->
     with(fun(_Dir) ->
         {ok, _} = mycelium_discovery_file:init(#{}),
         {ok, _} = mycelium_discovery_file:register('node1@host', 9100, undefined),
-        ?assertEqual({ok, {"host", 9100}},
-                     mycelium_discovery_file:lookup('node1@host', "host")),
-        ?assertEqual({error, not_found},
-                     mycelium_discovery_file:lookup('missing@host', "host"))
+        ?assertEqual(
+            {ok, {"host", 9100}},
+            mycelium_discovery_file:lookup('node1@host', "host")
+        ),
+        ?assertEqual(
+            {error, not_found},
+            mycelium_discovery_file:lookup('missing@host', "host")
+        )
     end).
 
 file_list_nodes_test_() ->
@@ -49,8 +57,10 @@ file_list_nodes_test_() ->
         {ok, _} = mycelium_discovery_file:register('a@h', 9100, undefined),
         {ok, _} = mycelium_discovery_file:register('b@h', 9101, undefined),
         {ok, Nodes} = mycelium_discovery_file:list_nodes("h"),
-        ?assertEqual([{'a@h', 9100}, {'b@h', 9101}],
-                     lists:sort(Nodes))
+        ?assertEqual(
+            [{'a@h', 9100}, {'b@h', 9101}],
+            lists:sort(Nodes)
+        )
     end).
 
 file_unregister_test_() ->
@@ -58,8 +68,10 @@ file_unregister_test_() ->
         {ok, _} = mycelium_discovery_file:init(#{}),
         {ok, _} = mycelium_discovery_file:register('a@h', 9100, undefined),
         ok = mycelium_discovery_file:unregister('a@h'),
-        ?assertEqual({error, not_found},
-                     mycelium_discovery_file:lookup('a@h', "h")),
+        ?assertEqual(
+            {error, not_found},
+            mycelium_discovery_file:lookup('a@h', "h")
+        ),
         %% unregistering an absent node is a no-op
         ?assertEqual(ok, mycelium_discovery_file:unregister('a@h'))
     end).
@@ -70,19 +82,27 @@ file_unregister_test_() ->
 file_register_string_input_test_() ->
     with(fun(_Dir) ->
         {ok, _} = mycelium_discovery_file:init(#{}),
-        ?assertMatch({ok, _},
-                     mycelium_discovery_file:register("smoke", 9100, undefined)),
-        ?assertEqual({ok, {"127.0.0.1", 9100}},
-                     mycelium_discovery_file:lookup("smoke", "h"))
+        ?assertMatch(
+            {ok, _},
+            mycelium_discovery_file:register("smoke", 9100, undefined)
+        ),
+        ?assertEqual(
+            {ok, {"127.0.0.1", 9100}},
+            mycelium_discovery_file:lookup("smoke", "h")
+        )
     end).
 
 file_register_binary_input_test_() ->
     with(fun(_Dir) ->
         {ok, _} = mycelium_discovery_file:init(#{}),
-        ?assertMatch({ok, _},
-                     mycelium_discovery_file:register(<<"smoke@h">>, 9100, undefined)),
-        ?assertEqual({ok, {"h", 9100}},
-                     mycelium_discovery_file:lookup(<<"smoke@h">>, "h"))
+        ?assertMatch(
+            {ok, _},
+            mycelium_discovery_file:register(<<"smoke@h">>, 9100, undefined)
+        ),
+        ?assertEqual(
+            {ok, {"h", 9100}},
+            mycelium_discovery_file:lookup(<<"smoke@h">>, "h")
+        )
     end).
 
 %% A crafted filename that does not match the `name@host' atom
@@ -109,13 +129,19 @@ file_skips_malformed_filename_test_() ->
 dns_extract_host_string_input_test_() ->
     %% Bare name (no @host) should not crash; lookup falls back to
     %% the Host argument.
-    ?_assertMatch({ok, _},
-                  mycelium_discovery_dns:lookup("smoke", "127.0.0.1")).
+    ?_assertMatch(
+        {ok, _},
+        mycelium_discovery_dns:lookup("smoke", "127.0.0.1")
+    ).
 
 dns_extract_host_binary_input_test_() ->
-    ?_assertMatch({ok, _},
-                  mycelium_discovery_dns:lookup(<<"smoke@127.0.0.1">>,
-                                                "unreachable.invalid")).
+    ?_assertMatch(
+        {ok, _},
+        mycelium_discovery_dns:lookup(
+            <<"smoke@127.0.0.1">>,
+            "unreachable.invalid"
+        )
+    ).
 
 %%====================================================================
 %% static backend
@@ -123,25 +149,37 @@ dns_extract_host_binary_input_test_() ->
 
 static_lookup_2_tuple_test_() ->
     with(fun(_) ->
-        application:set_env(quic, dist,
-            [{nodes, [{'foo@h', {{127,0,0,1}, 9100}}]}]),
-        ?assertEqual({ok, {{127,0,0,1}, 9100}},
-                     mycelium_discovery_static:lookup('foo@h', "h"))
+        application:set_env(
+            quic,
+            dist,
+            [{nodes, [{'foo@h', {{127, 0, 0, 1}, 9100}}]}]
+        ),
+        ?assertEqual(
+            {ok, {{127, 0, 0, 1}, 9100}},
+            mycelium_discovery_static:lookup('foo@h', "h")
+        )
     end).
 
 static_lookup_3_tuple_test_() ->
     with(fun(_) ->
-        application:set_env(quic, dist,
-            [{nodes, [{'foo@h', "127.0.0.1", 9100}]}]),
-        ?assertEqual({ok, {"127.0.0.1", 9100}},
-                     mycelium_discovery_static:lookup('foo@h', "h"))
+        application:set_env(
+            quic,
+            dist,
+            [{nodes, [{'foo@h', "127.0.0.1", 9100}]}]
+        ),
+        ?assertEqual(
+            {ok, {"127.0.0.1", 9100}},
+            mycelium_discovery_static:lookup('foo@h', "h")
+        )
     end).
 
 static_lookup_miss_test_() ->
     with(fun(_) ->
         application:set_env(quic, dist, []),
-        ?assertEqual({error, not_found},
-                     mycelium_discovery_static:lookup('foo@h', "h"))
+        ?assertEqual(
+            {error, not_found},
+            mycelium_discovery_static:lookup('foo@h', "h")
+        )
     end).
 
 %%====================================================================
@@ -153,11 +191,16 @@ dispatcher_first_hit_wins_test_() ->
         %% Static wins over file when both have the node.
         {ok, _} = mycelium_discovery_file:init(#{}),
         {ok, _} = mycelium_discovery_file:register('foo@h', 9999, undefined),
-        application:set_env(quic, dist,
-            [{nodes, [{'foo@h', {{1,2,3,4}, 4242}}]}]),
+        application:set_env(
+            quic,
+            dist,
+            [{nodes, [{'foo@h', {{1, 2, 3, 4}, 4242}}]}]
+        ),
         {ok, _} = mycelium_discovery:init(#{}),
-        ?assertEqual({ok, {{1,2,3,4}, 4242}},
-                     mycelium_discovery:lookup('foo@h', "h"))
+        ?assertEqual(
+            {ok, {{1, 2, 3, 4}, 4242}},
+            mycelium_discovery:lookup('foo@h', "h")
+        )
     end).
 
 dispatcher_falls_through_to_file_test_() ->
@@ -166,8 +209,10 @@ dispatcher_falls_through_to_file_test_() ->
         {ok, _} = mycelium_discovery_file:init(#{}),
         {ok, _} = mycelium_discovery_file:register('foo@h', 9100, undefined),
         {ok, _} = mycelium_discovery:init(#{}),
-        ?assertEqual({ok, {"h", 9100}},
-                     mycelium_discovery:lookup('foo@h', "h"))
+        ?assertEqual(
+            {ok, {"h", 9100}},
+            mycelium_discovery:lookup('foo@h', "h")
+        )
     end).
 
 dispatcher_register_fans_out_test_() ->
@@ -175,11 +220,16 @@ dispatcher_register_fans_out_test_() ->
         {ok, S0} = mycelium_discovery:init(#{}),
         {ok, _S1} = mycelium_discovery:register('bar@h', 9100, S0),
         %% file backend should have an entry on disk now
-        ?assertEqual({ok, {"h", 9100}},
-                     mycelium_discovery_file:lookup('bar@h', "h")),
+        ?assertEqual(
+            {ok, {"h", 9100}},
+            mycelium_discovery_file:lookup('bar@h', "h")
+        ),
         %% dispatcher list_nodes unions both backends
-        application:set_env(quic, dist,
-            [{nodes, [{'baz@h', {{1,1,1,1}, 4433}}]}]),
+        application:set_env(
+            quic,
+            dist,
+            [{nodes, [{'baz@h', {{1, 1, 1, 1}, 4433}}]}]
+        ),
         {ok, Nodes} = mycelium_discovery:list_nodes("h"),
         Sorted = lists:sort(Nodes),
         ?assertEqual([{'bar@h', 9100}, {'baz@h', 4433}], Sorted)

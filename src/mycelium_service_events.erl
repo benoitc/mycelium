@@ -62,7 +62,6 @@ handle_call({subscribe, Pid, Filter}, _From, State) ->
             Subs = maps:put(Pid, {Ref, Filter}, State#state.subscribers),
             {reply, ok, State#state{subscribers = Subs}}
     end;
-
 handle_call({unsubscribe, Pid}, _From, State) ->
     case maps:take(Pid, State#state.subscribers) of
         {{Ref, _Filter}, Subs} ->
@@ -71,19 +70,20 @@ handle_call({unsubscribe, Pid}, _From, State) ->
         error ->
             {reply, ok, State}
     end;
-
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({notify, Event}, State) ->
-    maps:foreach(fun(Pid, {_Ref, Filter}) ->
-        case matches_filter(Event, Filter) of
-            true -> Pid ! {mycelium_service_event, Event};
-            false -> ok
-        end
-    end, State#state.subscribers),
+    maps:foreach(
+        fun(Pid, {_Ref, Filter}) ->
+            case matches_filter(Event, Filter) of
+                true -> Pid ! {mycelium_service_event, Event};
+                false -> ok
+            end
+        end,
+        State#state.subscribers
+    ),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -95,7 +95,6 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
         _ ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -112,7 +111,8 @@ matches_filter(Event, {name, Name}) ->
     get_event_name(Event) =:= Name;
 matches_filter(Event, {pattern, Pattern}) ->
     case get_event_name(Event) of
-        undefined -> false;
+        undefined ->
+            false;
         Name ->
             NameBin = to_binary(Name),
             case re:run(NameBin, Pattern) of

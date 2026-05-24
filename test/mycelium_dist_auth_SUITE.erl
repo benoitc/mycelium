@@ -66,8 +66,12 @@
 %%====================================================================
 
 all() ->
-    [{group, unit_tests}, {group, protocol_tests}, {group, trust_tests},
-     {group, whitelist_tests}].
+    [
+        {group, unit_tests},
+        {group, protocol_tests},
+        {group, trust_tests},
+        {group, whitelist_tests}
+    ].
 
 groups() ->
     [
@@ -195,8 +199,11 @@ test_sign_verify_roundtrip(_Config) ->
 
     %% Verify with our own public key
     {ok, PubKey} = mycelium_dist_auth:get_public_key(),
-    ?assert(mycelium_dist_auth:verify_response(
-        Signature, PubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING)),
+    ?assert(
+        mycelium_dist_auth:verify_response(
+            Signature, PubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING
+        )
+    ),
     ok.
 
 test_invalid_signature_rejected(_Config) ->
@@ -209,8 +216,11 @@ test_invalid_signature_rejected(_Config) ->
     BogusSignature = crypto:strong_rand_bytes(64),
 
     %% Should fail verification
-    ?assertNot(mycelium_dist_auth:verify_response(
-        BogusSignature, PubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING)),
+    ?assertNot(
+        mycelium_dist_auth:verify_response(
+            BogusSignature, PubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING
+        )
+    ),
     ok.
 
 test_replay_attack_prevented(_Config) ->
@@ -222,13 +232,19 @@ test_replay_attack_prevented(_Config) ->
     {ok, Signature} = mycelium_dist_auth:sign_challenge(Nonce, Timestamp, ?TEST_BINDING),
 
     %% Verify with correct timestamp - should pass
-    ?assert(mycelium_dist_auth:verify_response(
-        Signature, PubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING)),
+    ?assert(
+        mycelium_dist_auth:verify_response(
+            Signature, PubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING
+        )
+    ),
 
     %% Modify the nonce - should fail
     ModifiedNonce = crypto:strong_rand_bytes(32),
-    ?assertNot(mycelium_dist_auth:verify_response(
-        Signature, PubKey, {ModifiedNonce, Timestamp, MonoStart}, ?TEST_BINDING)),
+    ?assertNot(
+        mycelium_dist_auth:verify_response(
+            Signature, PubKey, {ModifiedNonce, Timestamp, MonoStart}, ?TEST_BINDING
+        )
+    ),
     ok.
 
 test_timestamp_window_enforced(_Config) ->
@@ -248,8 +264,11 @@ test_timestamp_window_enforced(_Config) ->
 
     %% Verification rejects because Elapsed > window even though the
     %% signature would otherwise be valid.
-    ?assertNot(mycelium_dist_auth:verify_response(
-        Signature, PubKey, {Nonce, WallTs, StaleMono}, ?TEST_BINDING)),
+    ?assertNot(
+        mycelium_dist_auth:verify_response(
+            Signature, PubKey, {Nonce, WallTs, StaleMono}, ?TEST_BINDING
+        )
+    ),
     ok.
 
 %%====================================================================
@@ -310,10 +329,14 @@ test_invalid_message_rejected(_Config) ->
 
     %% Test invalid hello payload (current protocol version, oversized
     %% name length with too few bytes).
-    {error, invalid_hello_payload} = mycelium_dist_protocol:decode(<<1:8, 2:8, 100:16/big, "short">>),
+    {error, invalid_hello_payload} = mycelium_dist_protocol:decode(
+        <<1:8, 2:8, 100:16/big, "short">>
+    ),
 
     %% A prior-version HELLO is rejected with an explicit version error.
-    {error, {unsupported_version, 1}} = mycelium_dist_protocol:decode(<<1:8, 1:8, 100:16/big, "short">>),
+    {error, {unsupported_version, 1}} = mycelium_dist_protocol:decode(
+        <<1:8, 1:8, 100:16/big, "short">>
+    ),
     ok.
 
 %% Decoding a HELLO must not create an atom for the peer-claimed name
@@ -379,8 +402,10 @@ test_conflicting_key_rejected(_Config) ->
     ConflictingKey = crypto:strong_rand_bytes(32),
     ?assertNotEqual(OriginalKey, ConflictingKey),
     ?assertNot(mycelium_dist_keys:is_trusted(Peer, ConflictingKey)),
-    ?assertEqual({error, key_mismatch},
-                 mycelium_dist_keys:store_key_if_new(Peer, ConflictingKey)),
+    ?assertEqual(
+        {error, key_mismatch},
+        mycelium_dist_keys:store_key_if_new(Peer, ConflictingKey)
+    ),
     ok.
 
 %% lookup_pin/1 distinguishes "no pin", "pin matches", "pin differs".
@@ -399,8 +424,10 @@ test_lookup_pin_tri_state(_Config) ->
     %% lookup_pin returns the *stored* key, not the presented one,
     %% so callers can compare and reject.
     ?assertMatch({pinned, Pinned}, mycelium_dist_keys:lookup_pin(Peer)),
-    ?assertEqual({error, key_mismatch},
-                 mycelium_dist_keys:store_key_if_new(Peer, Other)),
+    ?assertEqual(
+        {error, key_mismatch},
+        mycelium_dist_keys:store_key_if_new(Peer, Other)
+    ),
     ok.
 
 %% Window check uses monotonic time. An NTP step on the wall clock
@@ -417,11 +444,17 @@ test_verify_response_uses_monotonic(_Config) ->
     {ok, PrivKey} = mycelium_dist_auth:get_private_key(),
     Msg = <<Nonce/binary, FutureWall:64/big, PubKey/binary, (?TEST_BINDING)/binary>>,
     Sig2 = crypto:sign(eddsa, none, Msg, [PrivKey, ed25519]),
-    ?assert(mycelium_dist_auth:verify_response(
-        Sig2, PubKey, {Nonce, FutureWall, MonoStart}, ?TEST_BINDING)),
+    ?assert(
+        mycelium_dist_auth:verify_response(
+            Sig2, PubKey, {Nonce, FutureWall, MonoStart}, ?TEST_BINDING
+        )
+    ),
     %% Sanity: the original wall-time signature still verifies too.
-    ?assert(mycelium_dist_auth:verify_response(
-        Signature, PubKey, {Nonce, WallTs, MonoStart}, ?TEST_BINDING)),
+    ?assert(
+        mycelium_dist_auth:verify_response(
+            Signature, PubKey, {Nonce, WallTs, MonoStart}, ?TEST_BINDING
+        )
+    ),
     ok.
 
 %% A peer-supplied wall timestamp far from local wall time is
@@ -431,10 +464,14 @@ test_peer_ts_outside_window_rejected(_Config) ->
     Window = application:get_env(mycelium, auth_timestamp_window, 30000),
     %% 3x the window puts us clearly outside the 2x tolerance.
     Far = Now - 3 * Window - 5000,
-    ?assertEqual({error, peer_ts_skew},
-                 mycelium_dist_auth:validate_peer_ts(Far)),
-    ?assertEqual({error, peer_ts_skew},
-                 mycelium_dist_auth:validate_peer_ts(Now + 3 * Window + 5000)),
+    ?assertEqual(
+        {error, peer_ts_skew},
+        mycelium_dist_auth:validate_peer_ts(Far)
+    ),
+    ?assertEqual(
+        {error, peer_ts_skew},
+        mycelium_dist_auth:validate_peer_ts(Now + 3 * Window + 5000)
+    ),
     ok.
 
 %% A peer-supplied wall timestamp within tolerance is accepted.
@@ -454,8 +491,11 @@ test_wrong_signature_rejected(_Config) ->
     {ok, Signature} = mycelium_dist_auth:sign_challenge(Nonce, Timestamp, ?TEST_BINDING),
     {WrongPubKey, _WrongPriv} = mycelium_dist_auth:generate_keypair(),
 
-    ?assertNot(mycelium_dist_auth:verify_response(
-        Signature, WrongPubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING)),
+    ?assertNot(
+        mycelium_dist_auth:verify_response(
+            Signature, WrongPubKey, {Nonce, Timestamp, MonoStart}, ?TEST_BINDING
+        )
+    ),
     ok.
 
 %% Channel binding (H1): a signature produced over one TLS channel's
@@ -468,18 +508,24 @@ test_channel_binding_mismatch_rejected(_Config) ->
     {Nonce, Timestamp, MonoStart} = mycelium_dist_auth:create_challenge(),
 
     ServerCertHash = crypto:hash(sha256, <<"real-server-cert">>),
-    MitmCertHash   = crypto:hash(sha256, <<"mitm-cert">>),
+    MitmCertHash = crypto:hash(sha256, <<"mitm-cert">>),
 
     %% Signer binds to the real cert it observed.
     {ok, Sig} = mycelium_dist_auth:sign_challenge(Nonce, Timestamp, ServerCertHash),
 
     %% Same binding verifies.
-    ?assert(mycelium_dist_auth:verify_response(
-        Sig, PubKey, {Nonce, Timestamp, MonoStart}, ServerCertHash)),
+    ?assert(
+        mycelium_dist_auth:verify_response(
+            Sig, PubKey, {Nonce, Timestamp, MonoStart}, ServerCertHash
+        )
+    ),
 
     %% A verifier on a relayed channel (different cert) rejects.
-    ?assertNot(mycelium_dist_auth:verify_response(
-        Sig, PubKey, {Nonce, Timestamp, MonoStart}, MitmCertHash)),
+    ?assertNot(
+        mycelium_dist_auth:verify_response(
+            Sig, PubKey, {Nonce, Timestamp, MonoStart}, MitmCertHash
+        )
+    ),
     ok.
 
 test_key_persistence_to_disk(Config) ->
@@ -571,7 +617,8 @@ test_whitelist_invalid_pattern(_Config) ->
     %% Set up whitelist with valid and invalid patterns
     application:set_env(mycelium, cookie_only_nodes, [
         'valid@localhost',
-        invalid_no_at,  %% Missing @
+        %% Missing @
+        invalid_no_at,
         'also@valid'
     ]),
 

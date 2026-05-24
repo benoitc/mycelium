@@ -71,7 +71,7 @@ down(Ref, Watch) ->
 %% nothing.
 add(Source, Watch) ->
     case maps:is_key(Source, Watch) of
-        true  -> Watch;
+        true -> Watch;
         false -> do_subscribe(Source, Watch)
     end.
 

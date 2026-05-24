@@ -40,40 +40,49 @@ with_streams(Test) ->
 %%====================================================================
 
 register_acceptor_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         ok = mycelium_streams:register_acceptor(<<"my:tag">>, self()),
         [{<<"my:tag">>, Self}] = mycelium_streams:list_acceptors(),
         ?assertEqual(self(), Self)
     end).
 
 register_acceptor_conflict_test_() ->
-    with_streams(fun () ->
-        Other = spawn(fun() -> receive _ -> ok end end),
+    with_streams(fun() ->
+        Other = spawn(fun() ->
+            receive
+                _ -> ok
+            end
+        end),
         ok = mycelium_streams:register_acceptor(<<"a">>, self()),
-        ?assertEqual({error, conflict},
-                     mycelium_streams:register_acceptor(<<"a">>, Other)),
+        ?assertEqual(
+            {error, conflict},
+            mycelium_streams:register_acceptor(<<"a">>, Other)
+        ),
         exit(Other, kill)
     end).
 
 register_acceptor_idempotent_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         ok = mycelium_streams:register_acceptor(<<"a">>, self()),
         ok = mycelium_streams:register_acceptor(<<"a">>, self()),
         [_] = mycelium_streams:list_acceptors()
     end).
 
 unregister_acceptor_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         ok = mycelium_streams:register_acceptor(<<"a">>, self()),
         ok = mycelium_streams:unregister_acceptor(<<"a">>),
         [] = mycelium_streams:list_acceptors()
     end).
 
 handler_down_drops_registration_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         Other = spawn(fun() -> ok end),
         Ref = monitor(process, Other),
-        receive {'DOWN', Ref, process, Other, _} -> ok after 1000 -> ?assert(false) end,
+        receive
+            {'DOWN', Ref, process, Other, _} -> ok
+        after 1000 -> ?assert(false)
+        end,
         ok = mycelium_streams:register_acceptor(<<"x">>, Other),
         %% Give the gen_server a chance to process the DOWN.
         timer:sleep(50),
@@ -81,10 +90,13 @@ handler_down_drops_registration_test_() ->
     end).
 
 open_writes_tag_preamble_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         meck:reset(quic_dist),
-        meck:expect(quic_dist, open_stream,
-                    fun(_) -> {ok, {quic_dist_stream, 'n@h', 1}} end),
+        meck:expect(
+            quic_dist,
+            open_stream,
+            fun(_) -> {ok, {quic_dist_stream, 'n@h', 1}} end
+        ),
         meck:expect(quic_dist, send, fun(_SR, _Data) -> ok end),
         meck:expect(quic_dist, close_stream, fun(_) -> ok end),
         {ok, SR} = mycelium_streams:open(<<"foo">>, 'n@h'),
@@ -92,20 +104,25 @@ open_writes_tag_preamble_test_() ->
         %% First send must be the tag preamble: <<3, "foo">>.
         Hist = meck:history(quic_dist),
         Sends = [Args || {_, {quic_dist, send, Args}, ok} <- Hist],
-        ?assert(lists:any(fun([_, <<3, "foo">>]) -> true; (_) -> false end,
-                          Sends))
+        ?assert(
+            lists:any(
+                fun
+                    ([_, <<3, "foo">>]) -> true;
+                    (_) -> false
+                end,
+                Sends
+            )
+        )
     end).
 
 dispatch_known_tag_handoff_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         ok = mycelium_streams:register_acceptor(<<"my:tag">>, self()),
         SR = {quic_dist_stream, 'peer@h', 7},
         Preamble = <<6, "my:tag">>,
         Payload = <<"first chunk">>,
         Demuxer = whereis(mycelium_streams),
-        Demuxer ! {quic_dist_stream, SR, {data,
-                                          <<Preamble/binary, Payload/binary>>,
-                                          false}},
+        Demuxer ! {quic_dist_stream, SR, {data, <<Preamble/binary, Payload/binary>>, false}},
         receive
             {mstream, SR, opened, 'peer@h'} -> ok
         after 1000 ->
@@ -119,7 +136,7 @@ dispatch_known_tag_handoff_test_() ->
     end).
 
 dispatch_unknown_tag_resets_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         meck:reset(quic_dist),
         meck:expect(quic_dist, reset_stream, fun(_, _) -> ok end),
         SR = {quic_dist_stream, 'peer@h', 1},
@@ -128,13 +145,15 @@ dispatch_unknown_tag_resets_test_() ->
         Demuxer ! {quic_dist_stream, SR, {data, Preamble, false}},
         timer:sleep(50),
         Hist = meck:history(quic_dist),
-        ResetCalls = [Args ||
-            {_, {quic_dist, reset_stream, Args}, ok} <- Hist],
+        ResetCalls = [
+            Args
+         || {_, {quic_dist, reset_stream, Args}, ok} <- Hist
+        ],
         ?assert(length(ResetCalls) >= 1)
     end).
 
 partial_preamble_buffers_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         ok = mycelium_streams:register_acceptor(<<"my:tag">>, self()),
         SR = {quic_dist_stream, 'peer@h', 9},
         Demuxer = whereis(mycelium_streams),
@@ -159,7 +178,7 @@ partial_preamble_buffers_test_() ->
     end).
 
 fin_only_after_tag_preserves_close_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         ok = mycelium_streams:register_acceptor(<<"t">>, self()),
         SR = {quic_dist_stream, 'p@h', 3},
         Demuxer = whereis(mycelium_streams),
@@ -180,18 +199,24 @@ fin_only_after_tag_preserves_close_test_() ->
 %% preamble must not grow `pending' without bound. After 64 incomplete
 %% preambles are parked, the next new stream is refused.
 pending_stream_cap_refuses_new_streams_test_() ->
-    with_streams(fun () ->
+    with_streams(fun() ->
         Self = self(),
-        meck:expect(quic_dist, close_stream,
-                    fun(SR0) -> Self ! {close, SR0}, ok end),
+        meck:expect(
+            quic_dist,
+            close_stream,
+            fun(SR0) ->
+                Self ! {close, SR0},
+                ok
+            end
+        ),
         Demuxer = whereis(mycelium_streams),
         %% Park 64 incomplete preambles (single-byte data, no Tag).
         %% Each delivers TagLen=255 (or similar) without enough bytes
         %% to complete, so each enters `pending'.
-        [Demuxer ! {quic_dist_stream,
-                    {quic_dist_stream, 'p@h', I},
-                    {data, <<255>>, false}}
-         || I <- lists:seq(1, 64)],
+        [
+            Demuxer ! {quic_dist_stream, {quic_dist_stream, 'p@h', I}, {data, <<255>>, false}}
+         || I <- lists:seq(1, 64)
+        ],
         _ = sys:get_state(Demuxer),
         %% The 65th new stream should be refused; no `mstream' event
         %% reaches us and the demuxer calls quic_dist:close_stream.

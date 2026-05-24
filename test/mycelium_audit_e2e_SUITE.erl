@@ -38,8 +38,10 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Case, Config) ->
     SuiteDir = ?config(priv_dir, Config),
-    TcDir = filename:join(SuiteDir,
-                          "tc_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    TcDir = filename:join(
+        SuiteDir,
+        "tc_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     ok = filelib:ensure_dir(filename:join(TcDir, "dummy")),
     DiscoveryDir = filename:join(TcDir, "discovery"),
     ok = filelib:ensure_dir(filename:join(DiscoveryDir, "dummy")),
@@ -47,7 +49,11 @@ init_per_testcase(_Case, Config) ->
     [{tc_dir, TcDir}, {discovery_dir, DiscoveryDir} | Config].
 
 end_per_testcase(_Case, _Config) ->
-    Peers = case get(?MODULE) of undefined -> []; L -> L end,
+    Peers =
+        case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end,
     [catch peer:stop(P) || P <- Peers],
     erase(?MODULE),
     ok.
@@ -65,12 +71,15 @@ tofu_repin_rejected(Config) ->
     {Pb, NodeB, DirB, _} = start_peer("b", C1, #{}),
     %% First contact: A connects to B, pins B's key.
     true = peer:call(Pa, net_kernel, connect_node, [NodeB], 15000),
-    wait_until(fun() ->
-        case peer:call(Pa, mycelium_dist_keys, lookup_pin, [NodeB]) of
-            {pinned, _} -> true;
-            _           -> false
-        end
-    end, 5000),
+    wait_until(
+        fun() ->
+            case peer:call(Pa, mycelium_dist_keys, lookup_pin, [NodeB]) of
+                {pinned, _} -> true;
+                _ -> false
+            end
+        end,
+        5000
+    ),
     {pinned, OldPub} = peer:call(Pa, mycelium_dist_keys, lookup_pin, [NodeB]),
     %% Stop B and wipe its keypair so a restart generates fresh keys.
     ok = peer:stop(Pb),
@@ -86,8 +95,10 @@ tofu_repin_rejected(Config) ->
     Result = peer:call(Pa, net_kernel, connect_node, [NodeB], 15000),
     ?assertNotEqual(true, Result),
     %% The pin is unchanged (re-pin refused).
-    ?assertEqual({pinned, OldPub},
-                 peer:call(Pa, mycelium_dist_keys, lookup_pin, [NodeB])),
+    ?assertEqual(
+        {pinned, OldPub},
+        peer:call(Pa, mycelium_dist_keys, lookup_pin, [NodeB])
+    ),
     ok.
 
 %% Client refuses an AUTH_OK short-circuit when the dialed peer is
@@ -97,8 +108,11 @@ tofu_repin_rejected(Config) ->
 client_refuses_auth_ok_when_target_not_whitelisted(Config) ->
     {Pa, NodeA, _, C1} = start_peer("a", Config, #{}),
     %% Server B lists A in cookie_only_nodes so B would send AUTH_OK.
-    {_Pb, NodeB, _, _} = start_peer("b", C1,
-                                     #{cookie_only_nodes => [NodeA]}),
+    {_Pb, NodeB, _, _} = start_peer(
+        "b",
+        C1,
+        #{cookie_only_nodes => [NodeA]}
+    ),
     %% A does NOT list B in its own cookie_only_nodes; A receives an
     %% unexpected AUTH_OK and the handshake fails.
     Result = peer:call(Pa, net_kernel, connect_node, [NodeB], 10000),
@@ -108,13 +122,19 @@ client_refuses_auth_ok_when_target_not_whitelisted(Config) ->
 %% A pending join to a phantom node clears via the backstop timer
 %% even though no peer_connected or peer_failed ever fires.
 pending_timeout_clears_phantom_join(Config) ->
-    {Pa, _NodeA, _, _} = start_peer("a", Config,
-                                    #{pending_timeout_ms => 200}),
+    {Pa, _NodeA, _, _} = start_peer(
+        "a",
+        Config,
+        #{pending_timeout_ms => 200}
+    ),
     _ = peer:call(Pa, mycelium, join, ['phantom@127.0.0.1']),
-    wait_until(fun() ->
-        Pending = peer:call(Pa, ?MODULE, pending_keys, []),
-        not lists:member('phantom@127.0.0.1', Pending)
-    end, 2000),
+    wait_until(
+        fun() ->
+            Pending = peer:call(Pa, ?MODULE, pending_keys, []),
+            not lists:member('phantom@127.0.0.1', Pending)
+        end,
+        2000
+    ),
     ok.
 
 %% Corrupting node.pub on disk leaves the priv/pub pair mismatched.
@@ -123,15 +143,25 @@ keypair_mismatch_detected_on_load(Config) ->
     {Pa, _NodeA, DirA, _} = start_peer("a", Config, #{}),
     KeyDir = filename:join([DirA, "data", "keys"]),
     %% Confirm baseline load works.
-    ?assertMatch({ok, _, _},
-                 peer:call(Pa, mycelium_dist_auth, load_keypair, [KeyDir])),
+    ?assertMatch(
+        {ok, _, _},
+        peer:call(Pa, mycelium_dist_auth, load_keypair, [KeyDir])
+    ),
     %% Overwrite the public key with random bytes.
-    ok = peer:call(Pa, file, write_file,
-                   [filename:join(KeyDir, "node.pub"),
-                    crypto:strong_rand_bytes(32)]),
+    ok = peer:call(
+        Pa,
+        file,
+        write_file,
+        [
+            filename:join(KeyDir, "node.pub"),
+            crypto:strong_rand_bytes(32)
+        ]
+    ),
     %% load_keypair now refuses with keypair_mismatch.
-    ?assertEqual({error, keypair_mismatch},
-                 peer:call(Pa, mycelium_dist_auth, load_keypair, [KeyDir])),
+    ?assertEqual(
+        {error, keypair_mismatch},
+        peer:call(Pa, mycelium_dist_auth, load_keypair, [KeyDir])
+    ),
     ok.
 
 %% A peer presenting a wall-clock timestamp far outside the window
@@ -141,12 +171,20 @@ validate_peer_ts_in_handshake(Config) ->
     {Pa, _NodeA, _, _} = start_peer("a", Config, #{}),
     Now = peer:call(Pa, erlang, system_time, [millisecond]),
     %% Inside tolerance.
-    ?assertEqual(ok,
-                 peer:call(Pa, mycelium_dist_auth, validate_peer_ts, [Now])),
+    ?assertEqual(
+        ok,
+        peer:call(Pa, mycelium_dist_auth, validate_peer_ts, [Now])
+    ),
     %% 5 minutes outside is far past the 2x window default.
-    ?assertEqual({error, peer_ts_skew},
-                 peer:call(Pa, mycelium_dist_auth, validate_peer_ts,
-                           [Now - 5 * 60 * 1000])),
+    ?assertEqual(
+        {error, peer_ts_skew},
+        peer:call(
+            Pa,
+            mycelium_dist_auth,
+            validate_peer_ts,
+            [Now - 5 * 60 * 1000]
+        )
+    ),
     ok.
 
 %%====================================================================
@@ -216,34 +254,55 @@ do_start_peer(Suffix, Config, Opts) ->
     %% same atom (so pinning still has a chance to match across a
     %% restart in the same test).
     Name = list_to_atom(
-        "myc_" ++ Suffix ++ "_"
-        ++ integer_to_list(erlang:phash2({?MODULE, Suffix, BasePort}, 1 bsl 30))
+        "myc_" ++ Suffix ++ "_" ++
+            integer_to_list(erlang:phash2({?MODULE, Suffix, BasePort}, 1 bsl 30))
     ),
     BaseArgs = [
-        "-proto_dist", "mycelium",
-        "-epmd_module", "mycelium_epmd",
-        "-start_epmd", "false",
-        "-mycelium_dist_port",     integer_to_list(Port),
-        "-mycelium_dist_cert_dir", QuicDir,
-        "-setcookie", "mycelium_ct",
+        "-proto_dist",
+        "mycelium",
+        "-epmd_module",
+        "mycelium_epmd",
+        "-start_epmd",
+        "false",
+        "-mycelium_dist_port",
+        integer_to_list(Port),
+        "-mycelium_dist_cert_dir",
+        QuicDir,
+        "-setcookie",
+        "mycelium_ct",
         %% Non-default cookie so cookie_only_nodes cases do not trip the
         %% default-cookie boot guard; all peers share it.
-        "-mycelium", "dist_cookie",   "myc_ct_secret",
-        "-mycelium", "auth_key_dir",  quote(KeysDir),
-        "-mycelium", "discovery_dir", quote(DiscoveryDir),
-        "-mycelium", "active_size",   integer_to_list(ActiveSize)
+        "-mycelium",
+        "dist_cookie",
+        "myc_ct_secret",
+        "-mycelium",
+        "auth_key_dir",
+        quote(KeysDir),
+        "-mycelium",
+        "discovery_dir",
+        quote(DiscoveryDir),
+        "-mycelium",
+        "active_size",
+        integer_to_list(ActiveSize)
     ],
-    CookieArgs = case Opts of
-        #{cookie_only_nodes := List} ->
-            ["-mycelium", "cookie_only_nodes",
-             lists:flatten(io_lib:format("~w", [List]))];
-        _ -> []
-    end,
-    PendingArgs = case Opts of
-        #{pending_timeout_ms := PT} ->
-            ["-mycelium", "pending_timeout_ms", integer_to_list(PT)];
-        _ -> []
-    end,
+    CookieArgs =
+        case Opts of
+            #{cookie_only_nodes := List} ->
+                [
+                    "-mycelium",
+                    "cookie_only_nodes",
+                    lists:flatten(io_lib:format("~w", [List]))
+                ];
+            _ ->
+                []
+        end,
+    PendingArgs =
+        case Opts of
+            #{pending_timeout_ms := PT} ->
+                ["-mycelium", "pending_timeout_ms", integer_to_list(PT)];
+            _ ->
+                []
+        end,
     PaArgs = lists:flatmap(fun(P) -> ["-pa", P] end, code:get_path()),
     Args = PaArgs ++ BaseArgs ++ CookieArgs ++ PendingArgs,
     %% Save the port we picked into the peer pid's process dictionary
@@ -257,7 +316,13 @@ do_start_peer(Suffix, Config, Opts) ->
         args => Args
     }),
     {ok, _Started} = peer:call(Pid, application, ensure_all_started, [mycelium]),
-    put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
+    put(?MODULE, [
+        Pid
+        | case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end
+    ]),
     {Pid, Node, NodeDir, Config}.
 
 peer_port(_Pid, Atom) ->
@@ -271,7 +336,11 @@ quote(S) -> "\"" ++ S ++ "\"".
 
 next_port(BasePort) ->
     Key = {?MODULE, next_port_offset},
-    N = case get(Key) of undefined -> 0; X -> X end,
+    N =
+        case get(Key) of
+            undefined -> 0;
+            X -> X
+        end,
     put(Key, N + 1),
     BasePort + N.
 
@@ -285,10 +354,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(50), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(50),
+                    wait_loop(Fun, Deadline)
             end
     end.

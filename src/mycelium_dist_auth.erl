@@ -71,9 +71,11 @@ ensure_keypair() ->
     case filelib:ensure_dir(filename:join(KeyDir, "dummy")) of
         ok ->
             PrivKeyFile = filename:join(KeyDir, "node.key"),
-            PubKeyFile  = filename:join(KeyDir, "node.pub"),
-            case filelib:is_file(PrivKeyFile)
-                 andalso filelib:is_file(PubKeyFile) of
+            PubKeyFile = filename:join(KeyDir, "node.pub"),
+            case
+                filelib:is_file(PrivKeyFile) andalso
+                    filelib:is_file(PubKeyFile)
+            of
                 true ->
                     case load_keypair(KeyDir) of
                         {ok, _PubKey, _PrivKey} -> ok;
@@ -124,20 +126,22 @@ create_challenge() ->
 %% computed over a different channel's cert no longer verifies.
 -spec sign_challenge(binary(), integer(), binary()) ->
     {ok, binary()} | {error, term()}.
-sign_challenge(Nonce, Timestamp, Binding)
-  when byte_size(Nonce) =:= ?NONCE_SIZE, byte_size(Binding) =:= ?BINDING_SIZE ->
+sign_challenge(Nonce, Timestamp, Binding) when
+    byte_size(Nonce) =:= ?NONCE_SIZE, byte_size(Binding) =:= ?BINDING_SIZE
+->
     case get_private_key() of
         {ok, PrivKey} ->
             case get_public_key() of
                 {ok, PubKey} ->
                     Message =
-                        <<Nonce/binary, Timestamp:64/big,
-                          PubKey/binary, Binding/binary>>,
+                        <<Nonce/binary, Timestamp:64/big, PubKey/binary, Binding/binary>>,
                     Sig = crypto:sign(eddsa, none, Message, [PrivKey, ed25519]),
                     {ok, Sig};
-                Error -> Error
+                Error ->
+                    Error
             end;
-        Error -> Error
+        Error ->
+            Error
     end;
 sign_challenge(_, _, _) ->
     {error, invalid_binding}.
@@ -148,23 +152,24 @@ sign_challenge(_, _, _) ->
 %% captured by `create_challenge/0', so an NTP step during the
 %% handshake cannot spuriously fail (or pass) the duration check.
 -spec verify_response(
-    binary(), binary(),
+    binary(),
+    binary(),
     {binary(), integer(), integer()},
     binary()
 ) -> boolean().
-verify_response(Signature, ResponderPubKey, {Nonce, WallTs, MonoStart}, Binding)
-  when byte_size(Signature)       =:= ?SIGNATURE_SIZE,
-       byte_size(ResponderPubKey) =:= ?PUBLIC_KEY_SIZE,
-       byte_size(Nonce)           =:= ?NONCE_SIZE,
-       byte_size(Binding)         =:= ?BINDING_SIZE,
-       is_integer(WallTs),
-       is_integer(MonoStart) ->
+verify_response(Signature, ResponderPubKey, {Nonce, WallTs, MonoStart}, Binding) when
+    byte_size(Signature) =:= ?SIGNATURE_SIZE,
+    byte_size(ResponderPubKey) =:= ?PUBLIC_KEY_SIZE,
+    byte_size(Nonce) =:= ?NONCE_SIZE,
+    byte_size(Binding) =:= ?BINDING_SIZE,
+    is_integer(WallTs),
+    is_integer(MonoStart)
+->
     Elapsed = erlang:monotonic_time(millisecond) - MonoStart,
     case Elapsed =< get_timestamp_window() of
         true ->
             Message =
-                <<Nonce/binary, WallTs:64/big,
-                  ResponderPubKey/binary, Binding/binary>>,
+                <<Nonce/binary, WallTs:64/big, ResponderPubKey/binary, Binding/binary>>,
             crypto:verify(
                 eddsa, none, Message, Signature, [ResponderPubKey, ed25519]
             );
@@ -183,7 +188,7 @@ verify_response(_, _, _, _) ->
 validate_peer_ts(PeerTs) when is_integer(PeerTs) ->
     Now = erlang:system_time(millisecond),
     case abs(Now - PeerTs) =< 2 * get_timestamp_window() of
-        true  -> ok;
+        true -> ok;
         false -> {error, peer_ts_skew}
     end;
 validate_peer_ts(_) ->
@@ -208,11 +213,12 @@ generate_keypair() ->
     {ok, binary(), binary()} | {error, term()}.
 load_keypair(KeyDir) ->
     PrivKeyFile = filename:join(KeyDir, "node.key"),
-    PubKeyFile  = filename:join(KeyDir, "node.pub"),
+    PubKeyFile = filename:join(KeyDir, "node.pub"),
     case {file:read_file(PrivKeyFile), file:read_file(PubKeyFile)} of
-        {{ok, PrivKey}, {ok, PubKey}}
-          when byte_size(PrivKey) =:= ?PRIVATE_KEY_SIZE,
-               byte_size(PubKey)  =:= ?PUBLIC_KEY_SIZE ->
+        {{ok, PrivKey}, {ok, PubKey}} when
+            byte_size(PrivKey) =:= ?PRIVATE_KEY_SIZE,
+            byte_size(PubKey) =:= ?PUBLIC_KEY_SIZE
+        ->
             case derived_pubkey(PrivKey) of
                 PubKey ->
                     {ok, PubKey, PrivKey};
@@ -235,7 +241,7 @@ load_keypair(KeyDir) ->
 -spec save_keypair(string(), binary(), binary()) -> ok | {error, term()}.
 save_keypair(KeyDir, PubKey, PrivKey) ->
     PrivKeyFile = filename:join(KeyDir, "node.key"),
-    PubKeyFile  = filename:join(KeyDir, "node.pub"),
+    PubKeyFile = filename:join(KeyDir, "node.pub"),
     case mycelium_file:write_secure(PrivKeyFile, PrivKey) of
         ok ->
             case mycelium_file:write_secure(PubKeyFile, PubKey) of
@@ -256,8 +262,9 @@ derived_pubkey(PrivKey) ->
             _ ->
                 undefined
         end
-    catch _:_ ->
-        undefined
+    catch
+        _:_ ->
+            undefined
     end.
 
 %%====================================================================
@@ -279,9 +286,9 @@ is_cookie_only_allowed(Node) ->
             lists:any(fun(P) -> match_node_pattern(P, NodeStr) end, Whitelist)
     end.
 
-node_to_list(Node) when is_atom(Node)   -> atom_to_list(Node);
+node_to_list(Node) when is_atom(Node) -> atom_to_list(Node);
 node_to_list(Node) when is_binary(Node) -> binary_to_list(Node);
-node_to_list(_)                         -> undefined.
+node_to_list(_) -> undefined.
 
 %% @doc Match a node name string against a pattern that may contain
 %% wildcards. Patterns support `*' for any name or any host:
@@ -294,13 +301,15 @@ match_node_pattern(Pattern, NodeStr) when is_atom(Pattern), is_list(NodeStr) ->
     case {string:split(PatternStr, "@"), string:split(NodeStr, "@")} of
         {[PName, PHost], [NName, NHost]} ->
             match_part(PName, NName) andalso match_part(PHost, NHost);
-        _ -> false
+        _ ->
+            false
     end;
-match_node_pattern(_, _) -> false.
+match_node_pattern(_, _) ->
+    false.
 
 -spec match_part(string(), string()) -> boolean().
 match_part("*", _) -> true;
-match_part(P,   N) -> P =:= N.
+match_part(P, N) -> P =:= N.
 
 %%====================================================================
 %% TLS channel binding (H1)
@@ -319,8 +328,11 @@ cache_server_cert_binding() ->
         {ok, Hash} ->
             persistent_term:put(?SERVER_CERT_BINDING_KEY, Hash);
         {error, Reason} ->
-            logger:error("mycelium_dist_auth: cannot hash listener cert for "
-                         "channel binding: ~p", [Reason])
+            logger:error(
+                "mycelium_dist_auth: cannot hash listener cert for "
+                "channel binding: ~p",
+                [Reason]
+            )
     end,
     ok.
 
@@ -331,21 +343,21 @@ cache_server_cert_binding() ->
 server_cert_binding() ->
     case persistent_term:get(?SERVER_CERT_BINDING_KEY, undefined) of
         undefined -> compute_server_cert_binding();
-        Hash      -> {ok, Hash}
+        Hash -> {ok, Hash}
     end.
 
 compute_server_cert_binding() ->
     DistOpts = application:get_env(quic, dist, []),
     case proplists:get_value(cert_file, DistOpts) of
         undefined -> {error, no_cert_file};
-        CertFile  -> cert_file_hash(CertFile)
+        CertFile -> cert_file_hash(CertFile)
     end.
 
 cert_file_hash(CertFile) ->
     case file:read_file(CertFile) of
         {ok, Pem} ->
             case first_cert_der(Pem) of
-                {ok, Der}      -> {ok, crypto:hash(sha256, Der)};
+                {ok, Der} -> {ok, crypto:hash(sha256, Der)};
                 {error, _} = E -> E
             end;
         {error, Reason} ->
@@ -355,9 +367,10 @@ cert_file_hash(CertFile) ->
 first_cert_der(Pem) ->
     try [Der || {'Certificate', Der, not_encrypted} <- public_key:pem_decode(Pem)] of
         [Der | _] -> {ok, Der};
-        []        -> {error, no_certificate_in_pem}
-    catch _:Reason ->
-        {error, {pem_decode_failed, Reason}}
+        [] -> {error, no_certificate_in_pem}
+    catch
+        _:Reason ->
+            {error, {pem_decode_failed, Reason}}
     end.
 
 %%====================================================================

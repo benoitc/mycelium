@@ -87,8 +87,11 @@ skip_when_streams_query_crashes_test_() ->
         Node = 'fake@host',
         seed_age(Node, 1000),
         meck:expect(mycelium, active_view, fun() -> [] end),
-        meck:expect(quic_dist, list_streams,
-                    fun(_) -> error(boom) end),
+        meck:expect(
+            quic_dist,
+            list_streams,
+            fun(_) -> error(boom) end
+        ),
         DisconnectCalls = track_disconnect(),
         mycelium_dist_gc:sweep_now(),
         ?assertEqual([], DisconnectCalls())
@@ -96,8 +99,10 @@ skip_when_streams_query_crashes_test_() ->
 
 get_age_returns_not_tracked_for_unknown_test_() ->
     with(fun(_) ->
-        ?assertEqual(not_tracked,
-                     mycelium_dist_gc:get_age_ms('never@seen'))
+        ?assertEqual(
+            not_tracked,
+            mycelium_dist_gc:get_age_ms('never@seen')
+        )
     end).
 
 %%====================================================================

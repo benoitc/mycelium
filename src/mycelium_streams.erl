@@ -84,9 +84,12 @@ start_link() ->
 %% The handler can use `quic_dist:send/2,3' and
 %% `quic_dist:close_stream/1' on `StreamRef'.
 -spec register_acceptor(binary(), pid()) -> ok | {error, conflict}.
-register_acceptor(Tag, Pid)
-  when is_binary(Tag), byte_size(Tag) >= 1, byte_size(Tag) =< ?MAX_TAG_LEN,
-       is_pid(Pid) ->
+register_acceptor(Tag, Pid) when
+    is_binary(Tag),
+    byte_size(Tag) >= 1,
+    byte_size(Tag) =< ?MAX_TAG_LEN,
+    is_pid(Pid)
+->
     gen_server:call(?SERVER, {register, Tag, Pid}).
 
 %% @doc Remove the handler registered for `Tag'.
@@ -108,9 +111,12 @@ list_acceptors() ->
 %% first chunk arrives.
 -spec open(binary(), node()) ->
     {ok, quic_dist:stream_ref()} | {error, term()}.
-open(Tag, Node)
-  when is_binary(Tag), byte_size(Tag) >= 1, byte_size(Tag) =< ?MAX_TAG_LEN,
-       is_atom(Node) ->
+open(Tag, Node) when
+    is_binary(Tag),
+    byte_size(Tag) >= 1,
+    byte_size(Tag) =< ?MAX_TAG_LEN,
+    is_atom(Node)
+->
     case quic_dist:open_stream(Node) of
         {ok, SR} ->
             Preamble = <<(byte_size(Tag)):8, Tag/binary>>,
@@ -155,7 +161,7 @@ register_self_as_acceptor(Node) ->
         {ok, Ctrl} ->
             try gen_statem:call(Ctrl, {accept_user_streams, Self}, 1000) of
                 ok -> ok;
-                _  -> error
+                _ -> error
             catch
                 _:_ -> error
             end;
@@ -181,14 +187,20 @@ ensure_acceptor(Node, N) ->
                 ok ->
                     ok;
                 error ->
-                    erlang:send_after(?ACCEPTOR_RETRY_MS, self(),
-                                      {retry_acceptor, Node, N - 1}),
+                    erlang:send_after(
+                        ?ACCEPTOR_RETRY_MS,
+                        self(),
+                        {retry_acceptor, Node, N - 1}
+                    ),
                     ok
             end
     end.
 
-handle_call({register, Tag, Pid}, _From,
-            S = #state{acceptors = A, acceptor_mons = M}) ->
+handle_call(
+    {register, Tag, Pid},
+    _From,
+    S = #state{acceptors = A, acceptor_mons = M}
+) ->
     case maps:find(Tag, A) of
         {ok, Pid} ->
             {reply, ok, S};
@@ -201,17 +213,21 @@ handle_call({register, Tag, Pid}, _From,
                 acceptor_mons = M#{Pid => {Mon, Tag}}
             }}
     end;
-handle_call({unregister, Tag}, _From,
-            S = #state{acceptors = A, acceptor_mons = M}) ->
+handle_call(
+    {unregister, Tag},
+    _From,
+    S = #state{acceptors = A, acceptor_mons = M}
+) ->
     case maps:take(Tag, A) of
         {Pid, A2} ->
-            M2 = case maps:take(Pid, M) of
-                {{Mon, Tag}, MRest} ->
-                    erlang:demonitor(Mon, [flush]),
-                    MRest;
-                error ->
-                    M
-            end,
+            M2 =
+                case maps:take(Pid, M) of
+                    {{Mon, Tag}, MRest} ->
+                        erlang:demonitor(Mon, [flush]),
+                        MRest;
+                    error ->
+                        M
+                end,
             {reply, ok, S#state{acceptors = A2, acceptor_mons = M2}};
         error ->
             {reply, ok, S}
@@ -233,11 +249,9 @@ handle_info({nodeup, Node}, S) when is_atom(Node) ->
     {noreply, S};
 handle_info({nodedown, _Node}, S) ->
     {noreply, S};
-
 handle_info({peer_up, Node}, S) when is_atom(Node) ->
     ensure_acceptor(Node, ?ACCEPTOR_RETRY_ATTEMPTS),
     {noreply, S};
-
 %% Short-cadence retry of the acceptor registration, scheduled when a
 %% nodeup/peer_up fired before the dist controller was reachable.
 handle_info({retry_acceptor, Node, N}, S) when is_atom(Node) ->
@@ -245,7 +259,6 @@ handle_info({retry_acceptor, Node, N}, S) when is_atom(Node) ->
     {noreply, S};
 handle_info({peer_down, _Node, _Reason}, S) ->
     {noreply, S};
-
 %% Reconcile: every 500 ms, walk erlang:nodes() and re-register on
 %% any peer whose dist controller is up. Cheap (gen_statem:call
 %% with a short 1s timeout), idempotent on the upstream side.
@@ -253,7 +266,6 @@ handle_info(reconcile_acceptors, S) ->
     [_ = register_self_as_acceptor(N) || N <- erlang:nodes()],
     erlang:send_after(500, self(), reconcile_acceptors),
     {noreply, S};
-
 %% Inbound stream traffic: buffer until the tag preamble is complete,
 %% then dispatch.
 handle_info({quic_dist_stream, SR, {data, Data, Fin}}, S) ->
@@ -265,14 +277,14 @@ handle_info({quic_dist_stream, SR, closed}, S) ->
     {noreply, S#state{pending = maps:remove(SR, S#state.pending)}};
 handle_info({quic_dist_stream, _SR, _Other}, S) ->
     {noreply, S};
-
 %% Re-subscribe if a watched source (hyparview events) restarted.
 handle_info({mycelium_source_monitor, retry, Source}, S = #state{watch = W}) ->
     {noreply, S#state{watch = mycelium_source_monitor:retry(Source, W)}};
-
 %% A source restart, or an acceptor pid dying: drop its registration.
-handle_info({'DOWN', Mon, process, Pid, _Reason},
-            S = #state{acceptor_mons = M, acceptors = A, watch = W}) ->
+handle_info(
+    {'DOWN', Mon, process, Pid, _Reason},
+    S = #state{acceptor_mons = M, acceptors = A, watch = W}
+) ->
     case mycelium_source_monitor:down(Mon, W) of
         {down, _Source, W1} ->
             {noreply, S#state{watch = W1}};
@@ -287,7 +299,6 @@ handle_info({'DOWN', Mon, process, Pid, _Reason},
                     {noreply, S}
             end
     end;
-
 handle_info(_Msg, S) ->
     {noreply, S}.
 
@@ -302,8 +313,9 @@ terminate(_Reason, _S) ->
 %% `Buf'. If complete, dispatch to the registered handler. If not
 %% (less than 1 byte, or full TagLen but partial Tag), buffer and
 %% wait for more.
-try_dispatch(SR, <<TagLen:8, R0/binary>>, Fin, S)
-  when byte_size(R0) >= TagLen ->
+try_dispatch(SR, <<TagLen:8, R0/binary>>, Fin, S) when
+    byte_size(R0) >= TagLen
+->
     <<Tag:TagLen/binary, Rest/binary>> = R0,
     S2 = S#state{pending = maps:remove(SR, S#state.pending)},
     dispatch(SR, Tag, Rest, Fin, S2);

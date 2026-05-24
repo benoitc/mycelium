@@ -43,13 +43,14 @@ teardown(_) ->
     ok.
 
 prop_test_() ->
-    {setup, fun setup/0, fun teardown/1,
-     [{timeout, 60, ?_assert(run(prop_merge_commutative()))},
-      {timeout, 60, ?_assert(run(prop_merge_associative()))},
-      {timeout, 60, ?_assert(run(prop_merge_idempotent()))},
-      {timeout, 60, ?_assert(run(prop_add_then_get()))},
-      {timeout, 60, ?_assert(run(prop_remove_disappears()))},
-      {timeout, 60, ?_assert(run(prop_remove_survives_stale_add()))}]}.
+    {setup, fun setup/0, fun teardown/1, [
+        {timeout, 60, ?_assert(run(prop_merge_commutative()))},
+        {timeout, 60, ?_assert(run(prop_merge_associative()))},
+        {timeout, 60, ?_assert(run(prop_merge_idempotent()))},
+        {timeout, 60, ?_assert(run(prop_add_then_get()))},
+        {timeout, 60, ?_assert(run(prop_remove_disappears()))},
+        {timeout, 60, ?_assert(run(prop_remove_survives_stale_add()))}
+    ]}.
 
 run(Prop) ->
     proper:quickcheck(Prop, [{numtests, ?NUMTESTS}, {to_file, user}]).
@@ -59,12 +60,14 @@ run(Prop) ->
 %%====================================================================
 
 %% Small key/value space so collisions actually happen.
-key()   -> oneof([a, b, c, d, e, f]).
+key() -> oneof([a, b, c, d, e, f]).
 value() -> oneof([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).
 
 op() ->
-    oneof([{add, key(), value()},
-           {remove, key()}]).
+    oneof([
+        {add, key(), value()},
+        {remove, key()}
+    ]).
 
 ops() ->
     list(op()).
@@ -84,48 +87,69 @@ apply_ops([{remove, K} | Rest], M) ->
 %%====================================================================
 
 prop_merge_commutative() ->
-    ?FORALL({A, B}, {ormap_gen(), ormap_gen()},
-            same_map(mycelium_ormap:merge(A, B),
-                     mycelium_ormap:merge(B, A))).
+    ?FORALL(
+        {A, B},
+        {ormap_gen(), ormap_gen()},
+        same_map(
+            mycelium_ormap:merge(A, B),
+            mycelium_ormap:merge(B, A)
+        )
+    ).
 
 prop_merge_associative() ->
-    ?FORALL({A, B, C}, {ormap_gen(), ormap_gen(), ormap_gen()},
-            same_map(
-              mycelium_ormap:merge(mycelium_ormap:merge(A, B), C),
-              mycelium_ormap:merge(A, mycelium_ormap:merge(B, C)))).
+    ?FORALL(
+        {A, B, C},
+        {ormap_gen(), ormap_gen(), ormap_gen()},
+        same_map(
+            mycelium_ormap:merge(mycelium_ormap:merge(A, B), C),
+            mycelium_ormap:merge(A, mycelium_ormap:merge(B, C))
+        )
+    ).
 
 prop_merge_idempotent() ->
-    ?FORALL(A, ormap_gen(),
-            same_map(A, mycelium_ormap:merge(A, A))).
+    ?FORALL(
+        A,
+        ormap_gen(),
+        same_map(A, mycelium_ormap:merge(A, A))
+    ).
 
 prop_add_then_get() ->
-    ?FORALL({K, V, M}, {key(), value(), ormap_gen()},
-            begin
-                M1 = mycelium_ormap:add(K, V, M),
-                {ok, V} =:= mycelium_ormap:get(K, M1)
-            end).
+    ?FORALL(
+        {K, V, M},
+        {key(), value(), ormap_gen()},
+        begin
+            M1 = mycelium_ormap:add(K, V, M),
+            {ok, V} =:= mycelium_ormap:get(K, M1)
+        end
+    ).
 
 prop_remove_disappears() ->
-    ?FORALL({K, V, M}, {key(), value(), ormap_gen()},
-            begin
-                M1 = mycelium_ormap:add(K, V, M),
-                M2 = mycelium_ormap:remove(K, M1),
-                not_found =:= mycelium_ormap:get(K, M2)
-            end).
+    ?FORALL(
+        {K, V, M},
+        {key(), value(), ormap_gen()},
+        begin
+            M1 = mycelium_ormap:add(K, V, M),
+            M2 = mycelium_ormap:remove(K, M1),
+            not_found =:= mycelium_ormap:get(K, M2)
+        end
+    ).
 
 %% Reordering / replay: a stale add delta that arrives after a remove
 %% must NOT resurrect the removed entry. Captures the delayed-merge
 %% race that the registry-sync layer exposes under partitions.
 prop_remove_survives_stale_add() ->
-    ?FORALL({K, V}, {key(), value()},
-            begin
-                M0 = mycelium_ormap:new(),
-                StaleAdd = mycelium_ormap:add(K, V, M0),
-                M1 = mycelium_ormap:add(K, V, M0),
-                M2 = mycelium_ormap:remove(K, M1),
-                Merged = mycelium_ormap:merge(M2, StaleAdd),
-                not_found =:= mycelium_ormap:get(K, Merged)
-            end).
+    ?FORALL(
+        {K, V},
+        {key(), value()},
+        begin
+            M0 = mycelium_ormap:new(),
+            StaleAdd = mycelium_ormap:add(K, V, M0),
+            M1 = mycelium_ormap:add(K, V, M0),
+            M2 = mycelium_ormap:remove(K, M1),
+            Merged = mycelium_ormap:merge(M2, StaleAdd),
+            not_found =:= mycelium_ormap:get(K, Merged)
+        end
+    ).
 
 %%====================================================================
 %% Helpers

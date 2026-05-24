@@ -29,11 +29,11 @@
 -export([get_entry/2]).
 -export([absorb_clock/1, gc_tombstones/2]).
 
--type dot()             :: {node(), mycelium_hlc:timestamp()}.
--type value_entry()     :: {value, term(), #{dot() => true}}.
+-type dot() :: {node(), mycelium_hlc:timestamp()}.
+-type value_entry() :: {value, term(), #{dot() => true}}.
 -type tombstone_entry() :: {tombstone, mycelium_hlc:timestamp()}.
--type entry()           :: value_entry() | tombstone_entry().
--type ormap()           :: #{term() => entry()}.
+-type entry() :: value_entry() | tombstone_entry().
+-type ormap() :: #{term() => entry()}.
 
 -export_type([ormap/0, dot/0, entry/0]).
 
@@ -58,7 +58,7 @@ add(Key, Value, Map) ->
         {tombstone, T} ->
             case mycelium_hlc:compare(DotHLC, T) of
                 gt -> Map#{Key => {value, Value, #{Dot => true}}};
-                _  -> Map
+                _ -> Map
             end;
         {value, _OldValue, Dots} ->
             Map#{Key => {value, Value, Dots#{Dot => true}}}
@@ -76,7 +76,7 @@ remove(Key, Map) ->
 get(Key, Map) ->
     case maps:get(Key, Map, undefined) of
         {value, Value, _Dots} -> {ok, Value};
-        _                     -> not_found
+        _ -> not_found
     end.
 
 %% Get the full entry (live value or tombstone) for a key. Used by
@@ -86,7 +86,7 @@ get(Key, Map) ->
 get_entry(Key, Map) ->
     case maps:get(Key, Map, undefined) of
         undefined -> not_found;
-        Entry     -> {ok, Entry}
+        Entry -> {ok, Entry}
     end.
 
 %% Keys with live entries. Tombstones are not listed.
@@ -104,8 +104,9 @@ to_list(Map) ->
 -spec is_empty(ormap()) -> boolean().
 is_empty(Map) ->
     lists:all(
-        fun({_K, {value, _, _}}) -> false;
-           (_)                   -> true
+        fun
+            ({_K, {value, _, _}}) -> false;
+            (_) -> true
         end,
         maps:to_list(Map)
     ).
@@ -121,11 +122,13 @@ is_empty(Map) ->
 -spec absorb_clock(ormap()) -> ok.
 absorb_clock(Map) ->
     maps:foreach(
-        fun(_Key, {value, _Val, Dots}) ->
+        fun
+            (_Key, {value, _Val, Dots}) ->
                 lists:foreach(
                     fun({_Node, HLC}) -> mycelium_hlc:update(HLC) end,
-                    maps:keys(Dots));
-           (_Key, {tombstone, HLC}) ->
+                    maps:keys(Dots)
+                );
+            (_Key, {tombstone, HLC}) ->
                 mycelium_hlc:update(HLC)
         end,
         Map
@@ -141,9 +144,10 @@ absorb_clock(Map) ->
 -spec gc_tombstones(ormap(), non_neg_integer()) -> ormap().
 gc_tombstones(Map, CutoffWallMs) ->
     maps:filter(
-        fun(_Key, {tombstone, HLC}) ->
+        fun
+            (_Key, {tombstone, HLC}) ->
                 mycelium_hlc:wall_time(HLC) >= CutoffWallMs;
-           (_Key, _Value) ->
+            (_Key, _Value) ->
                 true
         end,
         Map
@@ -155,8 +159,12 @@ merge(Map1, Map2) ->
     Keys = lists:usort(maps:keys(Map1) ++ maps:keys(Map2)),
     lists:foldl(
         fun(Key, Acc) ->
-            Acc#{Key => merge_entry(maps:get(Key, Map1, undefined),
-                                    maps:get(Key, Map2, undefined))}
+            Acc#{
+                Key => merge_entry(
+                    maps:get(Key, Map1, undefined),
+                    maps:get(Key, Map2, undefined)
+                )
+            }
         end,
         #{},
         Keys
@@ -166,8 +174,10 @@ merge(Map1, Map2) ->
 %% Internal
 %%====================================================================
 
-merge_entry(undefined, E)                    -> E;
-merge_entry(E, undefined)                    -> E;
+merge_entry(undefined, E) ->
+    E;
+merge_entry(E, undefined) ->
+    E;
 merge_entry({value, V1, D1}, {value, V2, D2}) ->
     MergedDots = maps:merge(D1, D2),
     %% Last-write-wins by the maximum dot. Compare the full dot
@@ -178,22 +188,22 @@ merge_entry({value, V1, D1}, {value, V2, D2}) ->
     %% on argument order.
     case dot_compare(max_dot(D1), max_dot(D2)) of
         gt -> {value, V1, MergedDots};
-        _  -> {value, V2, MergedDots}
+        _ -> {value, V2, MergedDots}
     end;
 merge_entry({tombstone, T1}, {tombstone, T2}) ->
     case mycelium_hlc:compare(T1, T2) of
         gt -> {tombstone, T1};
-        _  -> {tombstone, T2}
+        _ -> {tombstone, T2}
     end;
 merge_entry({tombstone, T} = Tomb, {value, _, D} = V) ->
     case mycelium_hlc:compare(T, max_hlc(D)) of
         gt -> Tomb;
-        _  -> V
+        _ -> V
     end;
 merge_entry({value, _, D} = V, {tombstone, T} = Tomb) ->
     case mycelium_hlc:compare(T, max_hlc(D)) of
         gt -> Tomb;
-        _  -> V
+        _ -> V
     end.
 
 dot_hlc({_Node, HLC}) -> HLC.
@@ -203,20 +213,23 @@ dot_hlc({_Node, HLC}) -> HLC.
 %% replica (the merge stays commutative).
 dot_compare({Na, Ha}, {Nb, Hb}) ->
     case mycelium_hlc:compare(Ha, Hb) of
-        eq    -> compare_node(Na, Nb);
+        eq -> compare_node(Na, Nb);
         Other -> Other
     end.
 
-compare_node(N, N)                -> eq;
+compare_node(N, N) -> eq;
 compare_node(Na, Nb) when Na > Nb -> gt;
-compare_node(_, _)                -> lt.
+compare_node(_, _) -> lt.
 
 %% The greatest dot in a non-empty dot set, by dot_compare/2.
 max_dot(Dots) ->
     [First | Rest] = maps:keys(Dots),
     lists:foldl(
         fun(Dot, Acc) ->
-            case dot_compare(Dot, Acc) of gt -> Dot; _ -> Acc end
+            case dot_compare(Dot, Acc) of
+                gt -> Dot;
+                _ -> Acc
+            end
         end,
         First,
         Rest
@@ -229,7 +242,7 @@ max_hlc(Dots) ->
         fun({_, HLC}, Acc) ->
             case mycelium_hlc:compare(HLC, Acc) of
                 gt -> HLC;
-                _  -> Acc
+                _ -> Acc
             end
         end,
         dot_hlc(First),

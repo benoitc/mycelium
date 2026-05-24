@@ -72,14 +72,22 @@ candidate_death_removes_candidacy(_Config) ->
     Pid = spawn(fun() ->
         {ok, _} = mycelium_leader:lead(job3),
         Parent ! ready,
-        receive stop -> ok end
+        receive
+            stop -> ok
+        end
     end),
-    receive ready -> ok after 5000 -> ct:fail(candidate_never_started) end,
+    receive
+        ready -> ok
+    after 5000 -> ct:fail(candidate_never_started)
+    end,
     ?assertEqual({ok, node(), Pid}, mycelium_leader:leader(job3)),
     Pid ! stop,
-    wait_until(fun() ->
-        mycelium_leader:leader(job3) =:= {error, no_leader}
-    end, 2000),
+    wait_until(
+        fun() ->
+            mycelium_leader:leader(job3) =:= {error, no_leader}
+        end,
+        2000
+    ),
     ok.
 
 duplicate_local_candidacy_rejected(_Config) ->
@@ -165,8 +173,8 @@ far_future_hlc() ->
 
 %% Mirror mycelium_leader's packing so tests can compare tokens.
 pack(HLC) ->
-    (mycelium_hlc:wall_time(HLC) bsl 32)
-        bor (mycelium_hlc:logical(HLC) band 16#FFFFFFFF).
+    (mycelium_hlc:wall_time(HLC) bsl 32) bor
+        (mycelium_hlc:logical(HLC) band 16#FFFFFFFF).
 
 wait_until(Fun, TimeoutMs) ->
     Deadline = erlang:monotonic_time(millisecond) + TimeoutMs,
@@ -174,10 +182,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(50), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(50),
+                    wait_loop(Fun, Deadline)
             end
     end.

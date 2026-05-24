@@ -35,7 +35,8 @@ trigger_cleanup() ->
 %%====================================================================
 
 init(Config) ->
-    Period = maps:get(passive_cleanup_period, Config, 60000),  %% Default 1 minute
+    %% Default 1 minute
+    Period = maps:get(passive_cleanup_period, Config, 60000),
     State = #state{
         cleanup_period = Period
     },
@@ -47,22 +48,21 @@ handle_call(_Request, _From, State) ->
 handle_cast(trigger_cleanup, State) ->
     do_cleanup(),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(cleanup_timeout, State) ->
     do_cleanup(),
     {noreply, schedule_cleanup(State)};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State) ->
-    _ = case State#state.timer_ref of
-        undefined -> ok;
-        Ref -> erlang:cancel_timer(Ref)
-    end,
+    _ =
+        case State#state.timer_ref of
+            undefined -> ok;
+            Ref -> erlang:cancel_timer(Ref)
+        end,
     ok.
 
 %%====================================================================

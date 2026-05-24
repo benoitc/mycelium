@@ -29,10 +29,11 @@
 
 -export([init/1, register/3, lookup/2, list_nodes/1]).
 
--define(DEFAULT_BACKENDS,
-        [mycelium_discovery_static,
-         mycelium_discovery_file,
-         mycelium_discovery_dns]).
+-define(DEFAULT_BACKENDS, [
+    mycelium_discovery_static,
+    mycelium_discovery_file,
+    mycelium_discovery_dns
+]).
 
 %%====================================================================
 %% quic_discovery callbacks
@@ -43,23 +44,29 @@ init(Opts) ->
     States = lists:foldl(
         fun(Mod, Acc) ->
             case init_backend(Mod, Opts) of
-                {ok, S}    -> Acc#{Mod => S};
+                {ok, S} -> Acc#{Mod => S};
                 {error, _} -> Acc
             end
-        end, #{}, Backends),
+        end,
+        #{},
+        Backends
+    ),
     {ok, States}.
 
 register(Node, Port, State) when is_map(State) ->
     Backends = configured_backends(#{}),
     NewState = lists:foldl(
         fun(Mod, Acc) -> register_one(Mod, Node, Port, Acc) end,
-        State, Backends),
+        State,
+        Backends
+    ),
     {ok, NewState}.
 
 register_one(Mod, Node, Port, Acc) ->
     _ = code:ensure_loaded(Mod),
     case erlang:function_exported(Mod, register, 3) of
-        false -> Acc;
+        false ->
+            Acc;
         true ->
             BS = maps:get(Mod, Acc, undefined),
             case Mod:register(Node, Port, BS) of
@@ -68,7 +75,8 @@ register_one(Mod, Node, Port, Acc) ->
                 {error, R} ->
                     logger:warning(
                         "[mycelium_discovery] ~p register failed: ~p",
-                        [Mod, R]),
+                        [Mod, R]
+                    ),
                     Acc
             end
     end.
@@ -82,14 +90,18 @@ list_nodes(Host) ->
     All = lists:foldl(
         fun(Mod, Acc) ->
             case erlang:function_exported(Mod, list_nodes, 1) of
-                false -> Acc;
+                false ->
+                    Acc;
                 true ->
                     case Mod:list_nodes(Host) of
-                        {ok, L}    -> L ++ Acc;
+                        {ok, L} -> L ++ Acc;
                         {error, _} -> Acc
                     end
             end
-        end, [], Backends),
+        end,
+        [],
+        Backends
+    ),
     {ok, lists:usort(All)}.
 
 %%====================================================================
@@ -109,7 +121,7 @@ configured_backends(_) ->
 init_backend(Mod, Opts) ->
     case erlang:function_exported(Mod, init, 1) of
         false -> {ok, undefined};
-        true  -> Mod:init(Opts)
+        true -> Mod:init(Opts)
     end.
 
 try_lookup([], _Node, _Host) ->
@@ -117,5 +129,5 @@ try_lookup([], _Node, _Host) ->
 try_lookup([Mod | Rest], Node, Host) ->
     case Mod:lookup(Node, Host) of
         {ok, _} = Hit -> Hit;
-        {error, _}    -> try_lookup(Rest, Node, Host)
+        {error, _} -> try_lookup(Rest, Node, Host)
     end.

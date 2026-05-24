@@ -100,7 +100,8 @@ test_cache_route(_Config) ->
 
     %% Cache the route
     ok = mycelium_router:cache_route(ServiceName, ViaNode),
-    timer:sleep(50), %% Allow async cast to complete
+    %% Allow async cast to complete
+    timer:sleep(50),
 
     %% Verify cache entry exists in ETS
     [{ServiceName, ViaNode, _Time}] = ets:lookup(mycelium_route_cache, ServiceName),
@@ -166,8 +167,7 @@ test_route_request_drops_over_cap(_Config) ->
     Self = self(),
     Ref = make_ref(),
     mycelium_router !
-        {'$mycelium_route',
-         {route_request, undefined, {Self, Ref}}},
+        {'$mycelium_route', {route_request, undefined, {Self, Ref}}},
     receive
         {Ref, {error, overloaded}} -> ok
     after 1000 ->
@@ -197,8 +197,7 @@ test_route_request_releases_slot_on_completion(_Config) ->
                 visited = [node()]
             },
             mycelium_router !
-                {'$mycelium_route',
-                 {route_request, Req, {Self, Ref}}}
+                {'$mycelium_route', {route_request, Req, {Self, Ref}}}
         end,
         Refs
     ),
@@ -230,15 +229,21 @@ test_sweep_evicts_expired_entries(_Config) ->
     %% Manually insert a stale entry. Build an HLC timestamp anchored
     %% one full TTL window in the past.
     NowWall = mycelium_hlc:wall_time(mycelium_hlc:now()),
-    StaleHLC = #timestamp{wall_time = NowWall - 2 * 1800000,
-                          logical = 0},
-    true = ets:insert(mycelium_route_cache,
-                      {Stale, 'stale@host', StaleHLC}),
+    StaleHLC = #timestamp{
+        wall_time = NowWall - 2 * 1800000,
+        logical = 0
+    },
+    true = ets:insert(
+        mycelium_route_cache,
+        {Stale, 'stale@host', StaleHLC}
+    ),
     %% Trigger the sweep synchronously by sending the handler message
     %% then sync via get_state.
     mycelium_router ! sweep_cache,
     _ = sys:get_state(mycelium_router),
     ?assertEqual([], ets:lookup(mycelium_route_cache, Stale)),
-    ?assertMatch([{Fresh, _, _}],
-                 ets:lookup(mycelium_route_cache, Fresh)),
+    ?assertMatch(
+        [{Fresh, _, _}],
+        ets:lookup(mycelium_route_cache, Fresh)
+    ),
     ok.

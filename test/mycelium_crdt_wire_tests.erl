@@ -47,10 +47,12 @@ leaf_validator_that_throws_rejects_test() ->
     ?assertNot(mycelium_crdt_wire:valid_entry({value, x, dots()}, Boom)).
 
 accept_filters_invalid_test() ->
-    Map = #{a => {value, 1, dots()},
-            b => {tombstone, ts()},
-            c => garbage,
-            d => {value, 2, #{}}},
+    Map = #{
+        a => {value, 1, dots()},
+        b => {tombstone, ts()},
+        c => garbage,
+        d => {value, 2, #{}}
+    },
     Acc = mycelium_crdt_wire:accept(Map, fun(_) -> true end),
     ?assertEqual([a, b], lists:sort(maps:keys(Acc))).
 
@@ -62,5 +64,7 @@ ingest_non_map_is_noop_test() ->
     Local = #{x => {value, 1, dots()}},
     %% Accepted is empty -> absorb_clock(#{}) needs no HLC server, and
     %% Merged is Local unchanged.
-    ?assertEqual({Local, #{}},
-                 mycelium_crdt_wire:ingest(Local, not_a_map, fun(_) -> true end)).
+    ?assertEqual(
+        {Local, #{}},
+        mycelium_crdt_wire:ingest(Local, not_a_map, fun(_) -> true end)
+    ).

@@ -41,21 +41,27 @@ project_defaults_allows_undefined_callback_when_disabled_test() ->
 %% {credentials, no_credentials}.
 listen_propagates_cert_ensure_failure_test_() ->
     {setup,
-     fun() ->
-         meck:new(mycelium_quic_cert, [passthrough]),
-         meck:expect(mycelium_quic_cert, ensure_cert,
-                     fun(_) -> {error, key_generation_failed} end),
-         ok
-     end,
-     fun(_) ->
-         meck:unload(mycelium_quic_cert),
-         cleanup()
-     end,
-     fun(_) ->
-         [?_assertEqual(
-             {error, {cert_ensure_failed, key_generation_failed}},
-             mycelium_dist:listen('node@host', #{}))]
-     end}.
+        fun() ->
+            meck:new(mycelium_quic_cert, [passthrough]),
+            meck:expect(
+                mycelium_quic_cert,
+                ensure_cert,
+                fun(_) -> {error, key_generation_failed} end
+            ),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(mycelium_quic_cert),
+            cleanup()
+        end,
+        fun(_) ->
+            [
+                ?_assertEqual(
+                    {error, {cert_ensure_failed, key_generation_failed}},
+                    mycelium_dist:listen('node@host', #{})
+                )
+            ]
+        end}.
 
 cleanup() ->
     application:unset_env(quic, dist),

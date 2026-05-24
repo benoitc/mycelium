@@ -55,7 +55,8 @@ handle_cast({request_connect, Node}, State) ->
                     spawn_link(fun() ->
                         case net_kernel:connect_node(Node) of
                             true ->
-                                ok; %% nodeup will be received
+                                %% nodeup will be received
+                                ok;
                             false ->
                                 Self ! {connect_failed, Node};
                             ignored ->
@@ -66,7 +67,6 @@ handle_cast({request_connect, Node}, State) ->
                     {noreply, State#state{pending = Pending}}
             end
     end;
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -83,12 +83,10 @@ handle_info({nodeup, Node, _Info}, State) ->
         error ->
             {noreply, State}
     end;
-
 handle_info({nodedown, Node, _Info}, State) ->
     Pending = maps:remove(Node, State#state.pending),
     mycelium_hyparview:peer_failed(Node, nodedown),
     {noreply, State#state{pending = Pending}};
-
 handle_info({connect_failed, Node}, State) ->
     case maps:is_key(Node, State#state.pending) of
         true ->
@@ -98,12 +96,10 @@ handle_info({connect_failed, Node}, State) ->
         false ->
             {noreply, State}
     end;
-
 %% Handle HyParView protocol messages
 handle_info({'$mycelium_hyparview', From, Msg}, State) ->
     mycelium_protocol:handle_message({'$mycelium_hyparview', From, Msg}, self()),
     {noreply, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 

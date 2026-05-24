@@ -30,8 +30,8 @@
 -define(LOOKUP_TIMEOUT, 5000).
 
 -record(state, {
-    in_flight = 0    :: non_neg_integer(),
-    max_in_flight    :: pos_integer()
+    in_flight = 0 :: non_neg_integer(),
+    max_in_flight :: pos_integer()
 }).
 
 %% Cap on concurrent route_request handlers. A peer flood used to
@@ -65,7 +65,8 @@ find_route(Target) ->
                 {ok, ViaNode} ->
                     %% Verify cached route is still valid
                     case lists:member(ViaNode, ActiveView) of
-                        true -> {via, ViaNode};
+                        true ->
+                            {via, ViaNode};
                         false ->
                             invalidate_route(Target),
                             find_next_hop(Target, ActiveView)
@@ -125,15 +126,12 @@ handle_cast({cache_route, ServiceName, ViaNode}, State) ->
     HLC = mycelium_hlc:now(),
     ets:insert(?ROUTE_CACHE, {ServiceName, ViaNode, HLC}),
     {noreply, State};
-
 handle_cast({invalidate, Key}, State) ->
     ets:delete(?ROUTE_CACHE, Key),
     {noreply, State};
-
 handle_cast(invalidate_all, State) ->
     ets:delete_all_objects(?ROUTE_CACHE),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -154,18 +152,15 @@ handle_info(
         fun() -> handle_route_request(Req, ReplyTo) end
     ),
     {noreply, State#state{in_flight = N + 1}};
-
 handle_info(
     {'DOWN', _Ref, process, _Pid, _Reason},
     #state{in_flight = N} = State
 ) when N > 0 ->
     {noreply, State#state{in_flight = N - 1}};
-
 handle_info(sweep_cache, State) ->
     sweep_cache(),
     schedule_sweep(),
     {noreply, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -183,7 +178,8 @@ get_cached_route(Key) ->
             CacheWall = mycelium_hlc:wall_time(CacheHLC),
             NowWall = mycelium_hlc:wall_time(mycelium_hlc:now()),
             case NowWall - CacheWall < ?CACHE_TTL_MS of
-                true -> {ok, ViaNode};
+                true ->
+                    {ok, ViaNode};
                 false ->
                     ets:delete(?ROUTE_CACHE, Key),
                     not_found
@@ -281,7 +277,7 @@ sweep_cache() ->
     Expired = ets:foldl(
         fun({Key, _Via, CacheHLC}, Acc) ->
             case NowWall - mycelium_hlc:wall_time(CacheHLC) >= ?CACHE_TTL_MS of
-                true  -> [Key | Acc];
+                true -> [Key | Acc];
                 false -> Acc
             end
         end,

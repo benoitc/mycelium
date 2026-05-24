@@ -135,30 +135,28 @@ handle_call({join, ContactNode}, _From, State) ->
             mycelium_bridge:request_connect(ContactNode),
             {reply, ok, State#view_state{pending = Pending}}
     end;
-
 handle_call(leave, _From, State) ->
     Self = State#view_state.self,
     %% HyParView-level leave: tell every active peer we no longer
     %% participate in gossip. Dist channels stay up; mycelium_dist_gc
     %% will reap them once they go idle and carry no live user streams.
-    maps:foreach(fun(Node, _Peer) ->
-        mycelium_protocol:send(Node, {disconnect, Self})
-    end, State#view_state.active_view),
+    maps:foreach(
+        fun(Node, _Peer) ->
+            mycelium_protocol:send(Node, {disconnect, Self})
+        end,
+        State#view_state.active_view
+    ),
     mycelium_hyparview_events:notify(left),
     {reply, ok, State#view_state{active_view = #{}, passive_view = #{}}};
-
 handle_call(active_view, _From, State) ->
     {reply, maps:keys(State#view_state.active_view), State};
-
 handle_call(passive_view, _From, State) ->
     {reply, maps:keys(State#view_state.passive_view), State};
-
 handle_call(get_churn_stats, _From, State) ->
     %% Reset window if expired
     Now = erlang:monotonic_time(millisecond),
     State1 = maybe_reset_churn_window(Now, State),
     {reply, {State1#view_state.recent_joins, State1#view_state.recent_leaves}, State1};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -192,17 +190,13 @@ handle_cast({peer_connected, Node, _DHandle}, State) ->
                     {noreply, State1}
             end
     end;
-
 handle_cast({peer_disconnected, Node, Reason}, State) ->
     handle_peer_removal(Node, Reason, graceful, State);
-
 handle_cast({peer_failed, Node, Reason}, State) ->
     handle_peer_removal(Node, Reason, failed, State);
-
 handle_cast(cleanup_passive_view, State) ->
     State1 = do_cleanup_passive_view(State),
     {noreply, State1};
-
 handle_cast({initiate_shuffle, Target, ShuffleLength}, State) ->
     case maps:is_key(Target, State#view_state.active_view) of
         true ->
@@ -214,35 +208,27 @@ handle_cast({initiate_shuffle, Target, ShuffleLength}, State) ->
         false ->
             {noreply, State}
     end;
-
 handle_cast({protocol_msg, {join, Sender}, _From}, State) ->
     State1 = handle_join(Sender, State),
     {noreply, State1};
-
 handle_cast({protocol_msg, {forward_join, NewPeer, TTL, Sender}, _From}, State) ->
     State1 = handle_forward_join(NewPeer, TTL, Sender, State),
     {noreply, State1};
-
 handle_cast({protocol_msg, {disconnect, Sender}, _From}, State) ->
     State1 = handle_disconnect(Sender, State),
     {noreply, State1};
-
 handle_cast({protocol_msg, {neighbor, Priority, Sender}, _From}, State) ->
     State1 = handle_neighbor(Priority, Sender, State),
     {noreply, State1};
-
 handle_cast({protocol_msg, {neighbor_reply, Accept, Sender}, _From}, State) ->
     State1 = handle_neighbor_reply(Accept, Sender, State),
     {noreply, State1};
-
 handle_cast({protocol_msg, {shuffle, TTL, Peers, Sender}, _From}, State) ->
     State1 = handle_shuffle(TTL, Peers, Sender, State),
     {noreply, State1};
-
 handle_cast({protocol_msg, {shuffle_reply, Peers, _Sender}, _From}, State) ->
     State1 = handle_shuffle_reply(Peers, State),
     {noreply, State1};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -256,7 +242,6 @@ handle_info({pending_timeout, Node}, State) ->
         error ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -282,7 +267,7 @@ insert_pending(Node, Kind, Pending) ->
     maps:put(Node, {Kind, Ref, TimerRef}, Pending).
 
 pending_timer({_Kind, _Ref, TimerRef}) -> TimerRef;
-pending_timer(_)                       -> undefined.
+pending_timer(_) -> undefined.
 
 cancel_pending_timer(TimerRef) when is_reference(TimerRef) ->
     _ = erlang:cancel_timer(TimerRef),
@@ -315,10 +300,15 @@ handle_join(Sender, State) ->
     %% Forward join to all active peers (except sender)
     TTL = State1#view_state.arwl,
     Self = State1#view_state.self,
-    maps:foreach(fun(Node, _P) when Node =/= Sender#peer.id ->
-        mycelium_protocol:send(Node, {forward_join, Sender, TTL, Self});
-        (_, _) -> ok
-    end, State1#view_state.active_view),
+    maps:foreach(
+        fun
+            (Node, _P) when Node =/= Sender#peer.id ->
+                mycelium_protocol:send(Node, {forward_join, Sender, TTL, Self});
+            (_, _) ->
+                ok
+        end,
+        State1#view_state.active_view
+    ),
 
     State1.
 
@@ -328,28 +318,33 @@ handle_forward_join(NewPeer, 0, _Sender, State) ->
         true ->
             State;
         false ->
-            Passive = add_to_passive(NewPeer, State#view_state.passive_view,
-                                     State#view_state.passive_size),
+            Passive = add_to_passive(
+                NewPeer,
+                State#view_state.passive_view,
+                State#view_state.passive_size
+            ),
             State#view_state{passive_view = Passive}
     end;
-
 handle_forward_join(NewPeer, _TTL, _Sender, State) when NewPeer#peer.id =:= node() ->
     %% Ignore forward_join for self
     State;
-
 handle_forward_join(NewPeer, TTL, Sender, State) ->
     ActiveSize = maps:size(State#view_state.active_view),
     PRWL = State#view_state.prwl,
 
     %% If TTL = PRWL, add to passive view
-    State1 = case TTL =:= PRWL of
-        true ->
-            Passive = add_to_passive(NewPeer, State#view_state.passive_view,
-                                     State#view_state.passive_size),
-            State#view_state{passive_view = Passive};
-        false ->
-            State
-    end,
+    State1 =
+        case TTL =:= PRWL of
+            true ->
+                Passive = add_to_passive(
+                    NewPeer,
+                    State#view_state.passive_view,
+                    State#view_state.passive_size
+                ),
+                State#view_state{passive_view = Passive};
+            false ->
+                State
+        end,
 
     case ActiveSize < State1#view_state.active_size of
         true ->
@@ -378,8 +373,11 @@ handle_disconnect(Sender, State) ->
             %% Track churn event
             State0 = record_churn_event(leave, State),
             Active = maps:remove(Sender#peer.id, State0#view_state.active_view),
-            Passive = add_to_passive(Sender, State0#view_state.passive_view,
-                                     State0#view_state.passive_size),
+            Passive = add_to_passive(
+                Sender,
+                State0#view_state.passive_view,
+                State0#view_state.passive_size
+            ),
             mycelium_hyparview_events:notify({peer_down, Sender#peer.id, graceful}),
             State1 = State0#view_state{active_view = Active, passive_view = Passive},
             maybe_promote_passive(State1);
@@ -389,10 +387,11 @@ handle_disconnect(Sender, State) ->
 
 handle_neighbor(Priority, Sender, State) ->
     ActiveSize = maps:size(State#view_state.active_view),
-    Accept = case Priority of
-        high -> true;
-        low -> ActiveSize < State#view_state.active_size
-    end,
+    Accept =
+        case Priority of
+            high -> true;
+            low -> ActiveSize < State#view_state.active_size
+        end,
     mycelium_protocol:send(Sender#peer.id, {neighbor_reply, Accept, State#view_state.self}),
     case Accept of
         true ->
@@ -412,12 +411,16 @@ handle_shuffle(TTL, Peers, Sender, State) ->
     FilteredPeers = [P || P <- Peers, P#peer.id =/= node()],
 
     %% Add received peers to passive view
-    Passive = lists:foldl(fun(P, Acc) ->
-        case maps:is_key(P#peer.id, State#view_state.active_view) of
-            true -> Acc;
-            false -> add_to_passive(P, Acc, State#view_state.passive_size)
-        end
-    end, State#view_state.passive_view, FilteredPeers),
+    Passive = lists:foldl(
+        fun(P, Acc) ->
+            case maps:is_key(P#peer.id, State#view_state.active_view) of
+                true -> Acc;
+                false -> add_to_passive(P, Acc, State#view_state.passive_size)
+            end
+        end,
+        State#view_state.passive_view,
+        FilteredPeers
+    ),
 
     %% Send reply with our random peers
     ReplyPeers = random_peers(State, length(FilteredPeers)),
@@ -442,12 +445,19 @@ handle_shuffle(TTL, Peers, Sender, State) ->
 
 handle_shuffle_reply(Peers, State) ->
     %% Filter out self and nodes already in active view
-    FilteredPeers = [P || P <- Peers,
-                     P#peer.id =/= node(),
-                     not maps:is_key(P#peer.id, State#view_state.active_view)],
-    Passive = lists:foldl(fun(P, Acc) ->
-        add_to_passive(P, Acc, State#view_state.passive_size)
-    end, State#view_state.passive_view, FilteredPeers),
+    FilteredPeers = [
+        P
+     || P <- Peers,
+        P#peer.id =/= node(),
+        not maps:is_key(P#peer.id, State#view_state.active_view)
+    ],
+    Passive = lists:foldl(
+        fun(P, Acc) ->
+            add_to_passive(P, Acc, State#view_state.passive_size)
+        end,
+        State#view_state.passive_view,
+        FilteredPeers
+    ),
     State#view_state{passive_view = Passive}.
 
 %%====================================================================
@@ -460,17 +470,21 @@ handle_peer_removal(Node, Reason, Type, State) ->
     case maps:is_key(Node, State0#view_state.active_view) of
         true ->
             Active = maps:remove(Node, State0#view_state.active_view),
-            State1 = case Type of
-                graceful ->
-                    Peer = maps:get(Node, State0#view_state.active_view),
-                    Passive = add_to_passive(Peer, State0#view_state.passive_view,
-                                            State0#view_state.passive_size),
-                    State0#view_state{active_view = Active, passive_view = Passive};
-                failed ->
-                    %% Track failure in passive view if present
-                    Passive = record_peer_failure(Node, State0),
-                    State0#view_state{active_view = Active, passive_view = Passive}
-            end,
+            State1 =
+                case Type of
+                    graceful ->
+                        Peer = maps:get(Node, State0#view_state.active_view),
+                        Passive = add_to_passive(
+                            Peer,
+                            State0#view_state.passive_view,
+                            State0#view_state.passive_size
+                        ),
+                        State0#view_state{active_view = Active, passive_view = Passive};
+                    failed ->
+                        %% Track failure in passive view if present
+                        Passive = record_peer_failure(Node, State0),
+                        State0#view_state{active_view = Active, passive_view = Passive}
+                end,
             mycelium_hyparview_events:notify({peer_down, Node, Reason}),
             State2 = maybe_promote_passive(State1),
             {noreply, State2};
@@ -525,8 +539,11 @@ add_to_active_view(Peer, State) ->
             Active2 = maps:put(Peer#peer.id, Peer, Active1),
 
             %% Move dropped to passive
-            Passive = add_to_passive(DroppedPeer, State#view_state.passive_view,
-                                    State#view_state.passive_size),
+            Passive = add_to_passive(
+                DroppedPeer,
+                State#view_state.passive_view,
+                State#view_state.passive_size
+            ),
             State#view_state{active_view = Active2, passive_view = Passive}
     end.
 
@@ -560,10 +577,11 @@ maybe_promote_passive(State) ->
                     Passive = maps:remove(Node, State#view_state.passive_view),
 
                     %% Send NEIGHBOR request with priority based on active view state
-                    Priority = case ActiveSize of
-                        0 -> high;
-                        _ -> low
-                    end,
+                    Priority =
+                        case ActiveSize of
+                            0 -> high;
+                            _ -> low
+                        end,
 
                     Pending = insert_pending(
                         Node, neighbor, State#view_state.pending
@@ -582,16 +600,23 @@ maybe_promote_passive(State) ->
 find_eligible_passive_peer(State, Now) ->
     MaxFails = State#view_state.max_fail_count,
     Candidates = maps:to_list(State#view_state.passive_view),
-    Eligible = [{N, P} || {N, P} <- Candidates,
-                          P#peer.fail_count < MaxFails,
-                          is_backoff_expired(P, Now)],
+    Eligible = [
+        {N, P}
+     || {N, P} <- Candidates,
+        P#peer.fail_count < MaxFails,
+        is_backoff_expired(P, Now)
+    ],
     case Eligible of
-        [] -> none;
+        [] ->
+            none;
         _ ->
             %% Prefer recently seen peers (more likely to be alive)
-            Sorted = lists:sort(fun({_, A}, {_, B}) ->
-                last_seen_cmp(A, B)
-            end, Eligible),
+            Sorted = lists:sort(
+                fun({_, A}, {_, B}) ->
+                    last_seen_cmp(A, B)
+                end,
+                Eligible
+            ),
             {Node, Peer} = hd(Sorted),
             {ok, Node, Peer}
     end.
@@ -675,7 +700,8 @@ record_peer_failure(Node, State) ->
                 false ->
                     %% Calculate exponential backoff: base * 2^fail_count
                     Base = State#view_state.base_backoff_ms,
-                    BackoffMs = Base * (1 bsl NewFailCount),  %% 2^fail_count
+                    %% 2^fail_count
+                    BackoffMs = Base * (1 bsl NewFailCount),
                     %% Cap at 5 minutes
                     CappedBackoff = min(BackoffMs, 300000),
                     UpdatedPeer = Peer#peer{
@@ -692,15 +718,19 @@ do_cleanup_passive_view(State) ->
     MaxAge = State#view_state.passive_max_age_ms,
     MaxFails = State#view_state.max_fail_count,
 
-    Passive = maps:filter(fun(_Node, Peer) ->
-        %% Keep if: not too many failures AND (recently seen OR no last_seen)
-        FailOk = Peer#peer.fail_count < MaxFails,
-        AgeOk = case Peer#peer.last_seen of
-            undefined -> true;
-            LastSeen -> (Now - LastSeen) < MaxAge
+    Passive = maps:filter(
+        fun(_Node, Peer) ->
+            %% Keep if: not too many failures AND (recently seen OR no last_seen)
+            FailOk = Peer#peer.fail_count < MaxFails,
+            AgeOk =
+                case Peer#peer.last_seen of
+                    undefined -> true;
+                    LastSeen -> (Now - LastSeen) < MaxAge
+                end,
+            FailOk andalso AgeOk
         end,
-        FailOk andalso AgeOk
-    end, State#view_state.passive_view),
+        State#view_state.passive_view
+    ),
 
     State#view_state{passive_view = Passive}.
 

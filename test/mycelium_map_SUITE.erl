@@ -31,19 +31,31 @@
 ]).
 
 all() ->
-    [new_is_idempotent, new_rejects_non_atom, independent_maps,
-     put_get_remove_roundtrip, keys_and_to_list, subscribe_receives_events,
-     unsubscribe_stops_events, subscriber_down_is_cleaned_up,
-     validator_rejects_bad_put, simulated_remote_delta_merges_and_emits,
-     malformed_gossip_does_not_crash, tombstones_gc_after_ttl,
-     delete_map_stops_instance, ops_on_missing_map,
-     persist_recovers_after_restart].
+    [
+        new_is_idempotent,
+        new_rejects_non_atom,
+        independent_maps,
+        put_get_remove_roundtrip,
+        keys_and_to_list,
+        subscribe_receives_events,
+        unsubscribe_stops_events,
+        subscriber_down_is_cleaned_up,
+        validator_rejects_bad_put,
+        simulated_remote_delta_merges_and_emits,
+        malformed_gossip_does_not_crash,
+        tombstones_gc_after_ttl,
+        delete_map_stops_instance,
+        ops_on_missing_map,
+        persist_recovers_after_restart
+    ].
 
 init_per_testcase(_Case, Config) ->
     %% Per-case map persistence dir, so a `persist => true' map writes to an
     %% isolated location (no cross-case or repo pollution).
-    Dir = filename:join(?config(priv_dir, Config),
-                        "maps_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    Dir = filename:join(
+        ?config(priv_dir, Config),
+        "maps_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     application:set_env(mycelium, mycelium_map_data_dir, Dir),
     {ok, _} = application:ensure_all_started(mycelium),
     Config.
@@ -105,9 +117,17 @@ unsubscribe_stops_events(_Config) ->
 subscriber_down_is_cleaned_up(_Config) ->
     {ok, _} = mycelium:new_map(m),
     Self = self(),
-    Pid = spawn(fun() -> mycelium:subscribe_map(m, self()), Self ! ready,
-                         receive stop -> ok end end),
-    receive ready -> ok after 1000 -> ct:fail(no_ready) end,
+    Pid = spawn(fun() ->
+        mycelium:subscribe_map(m, self()),
+        Self ! ready,
+        receive
+            stop -> ok
+        end
+    end),
+    receive
+        ready -> ok
+    after 1000 -> ct:fail(no_ready)
+    end,
     Owner = sys:get_state(mycelium_map:owner_name(m)),
     Pid ! stop,
     timer:sleep(100),
@@ -136,20 +156,27 @@ malformed_gossip_does_not_crash(_Config) ->
     H = mycelium_hlc:now(),
     GoodDots = #{{'peer@h', H} => true},
     Bad = [
-        not_a_map,                                  %% non-map payload
-        #{ka => {value, v, not_a_map}},             %% dots not a map
-        #{kb => {value, v, #{}}},                   %% empty dot map
-        #{kc => {value, v, #{bad => true}}},        %% malformed dot key
-        #{kd => {tombstone, not_a_timestamp}},      %% malformed tombstone
-        #{ke => garbage}                            %% not an entry
+        %% non-map payload
+        not_a_map,
+        %% dots not a map
+        #{ka => {value, v, not_a_map}},
+        %% empty dot map
+        #{kb => {value, v, #{}}},
+        %% malformed dot key
+        #{kc => {value, v, #{bad => true}}},
+        %% malformed tombstone
+        #{kd => {tombstone, not_a_timestamp}},
+        %% not an entry
+        #{ke => garbage}
     ],
-    [ ok = mycelium_map:replica_merge_delta(Rep, D) || D <- Bad ],
+    [ok = mycelium_map:replica_merge_delta(Rep, D) || D <- Bad],
     %% Owner and the shared HLC server survived, and good ops still work.
     _ = sys:get_state(mycelium_map:owner_name(m)),
     ?assert(is_process_alive(whereis(mycelium_hlc))),
     Good = #{kf => {value, ok_val, GoodDots}},
     ok = mycelium_map:replica_merge_delta(Rep, Good),
-    _ = sys:get_state(mycelium_map:owner_name(m)),   %% flush the merge cast
+    %% flush the merge cast
+    _ = sys:get_state(mycelium_map:owner_name(m)),
     ?assertEqual({ok, ok_val}, mycelium:map_get(m, kf)).
 
 tombstones_gc_after_ttl(_Config) ->
@@ -199,6 +226,7 @@ persist_recovers_after_restart(_Config) ->
 %%====================================================================
 
 recv(Name) ->
-    receive {mycelium_map, Name, Event} -> Event
+    receive
+        {mycelium_map, Name, Event} -> Event
     after 1000 -> timeout
     end.

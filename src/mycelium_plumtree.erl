@@ -30,18 +30,27 @@
 
 -define(SERVER, ?MODULE).
 -define(PLUMTREE_TAG, '$mycelium_plumtree').
--define(IHAVE_TIMEOUT, 1000).    %% Time to wait before requesting via GRAFT
--define(MESSAGE_TTL, 300000).    %% Keep messages for 5 minutes
--define(CLEANUP_INTERVAL, 60000). %% Cleanup old messages every minute
+%% Time to wait before requesting via GRAFT
+-define(IHAVE_TIMEOUT, 1000).
+%% Keep messages for 5 minutes
+-define(MESSAGE_TTL, 300000).
+%% Cleanup old messages every minute
+-define(CLEANUP_INTERVAL, 60000).
 
 -record(state, {
     %% Peer classification
-    eager_peers = [] :: [node()],     %% Push immediately
-    lazy_peers = [] :: [node()],      %% Send IHAVEs only
+
+    %% Push immediately
+    eager_peers = [] :: [node()],
+    %% Send IHAVEs only
+    lazy_peers = [] :: [node()],
 
     %% Message tracking (uses HLC timestamps for clock-skew-tolerant TTL)
-    received = #{} :: #{binary() => {term(), mycelium_hlc:timestamp()}},  %% MsgId -> {Payload, HLC}
-    pending_ihaves = #{} :: #{binary() => {node(), reference()}}, %% MsgId -> {Sender, TimerRef}
+
+    %% MsgId -> {Payload, HLC}
+    received = #{} :: #{binary() => {term(), mycelium_hlc:timestamp()}},
+    %% MsgId -> {Sender, TimerRef}
+    pending_ihaves = #{} :: #{binary() => {node(), reference()}},
 
     %% Subscribers for delivered messages
     subscribers = #{} :: #{pid() => reference()},
@@ -116,7 +125,6 @@ handle_call({subscribe, Pid}, _From, State) ->
             Subs = maps:put(Pid, Ref, State#state.subscribers),
             {reply, ok, State#state{subscribers = Subs}}
     end;
-
 handle_call({unsubscribe, Pid}, _From, State) ->
     case maps:take(Pid, State#state.subscribers) of
         {Ref, Subs} ->
@@ -125,7 +133,6 @@ handle_call({unsubscribe, Pid}, _From, State) ->
         error ->
             {reply, ok, State}
     end;
-
 handle_call(get_stats, _From, State) ->
     Stats = #{
         eager_peers => length(State#state.eager_peers),
@@ -139,7 +146,6 @@ handle_call(get_stats, _From, State) ->
         prune_sent => State#state.prune_sent
     },
     {reply, Stats, State};
-
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -163,7 +169,6 @@ handle_cast({broadcast, Tag, Payload, MsgId}, State) ->
 
             {noreply, State3#state{received = Received}}
     end;
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -198,7 +203,6 @@ handle_info({?PLUMTREE_TAG, {gossip, MsgId, Tag, Payload, Sender}}, State) ->
 
             {noreply, State6}
     end;
-
 %% Receive IHAVE notification
 handle_info({?PLUMTREE_TAG, {ihave, MsgId, Sender}}, State) ->
     case maps:is_key(MsgId, State#state.received) of
@@ -213,12 +217,13 @@ handle_info({?PLUMTREE_TAG, {ihave, MsgId, Sender}}, State) ->
                     {noreply, State};
                 false ->
                     %% Start timer to request via GRAFT
-                    TimerRef = erlang:send_after(?IHAVE_TIMEOUT, self(), {graft_timeout, MsgId, Sender}),
+                    TimerRef = erlang:send_after(
+                        ?IHAVE_TIMEOUT, self(), {graft_timeout, MsgId, Sender}
+                    ),
                     Pending = maps:put(MsgId, {Sender, TimerRef}, State#state.pending_ihaves),
                     {noreply, State#state{pending_ihaves = Pending}}
             end
     end;
-
 %% GRAFT timeout - request the message
 handle_info({graft_timeout, MsgId, Sender}, State) ->
     case maps:is_key(MsgId, State#state.received) of
@@ -235,7 +240,6 @@ handle_info({graft_timeout, MsgId, Sender}, State) ->
                 graft_sent = State#state.graft_sent + 1
             }}
     end;
-
 %% Receive GRAFT request
 handle_info({?PLUMTREE_TAG, {graft, MsgId, Sender}}, State) ->
     %% Move sender to eager peers and send the message
@@ -248,19 +252,16 @@ handle_info({?PLUMTREE_TAG, {graft, MsgId, Sender}}, State) ->
             %% Don't have it anymore
             {noreply, State2}
     end;
-
 %% Receive PRUNE request
 handle_info({?PLUMTREE_TAG, {prune, Sender}}, State) ->
     %% Move sender from eager to lazy
     State2 = move_to_lazy(Sender, State),
     {noreply, State2};
-
 %% HyParView events
 handle_info({mycelium_event, {peer_up, Node}}, State) ->
     %% New peer joins - add to eager peers
     State2 = ensure_eager(Node, State),
     {noreply, State2};
-
 handle_info({mycelium_event, {peer_down, Node, _Reason}}, State) ->
     %% Peer left - remove from all lists. mycelium_hyparview emits the
     %% 3-tuple form unconditionally; matching only on the 2-tuple let
@@ -268,12 +269,11 @@ handle_info({mycelium_event, {peer_down, Node, _Reason}}, State) ->
     EagerPeers = State#state.eager_peers -- [Node],
     LazyPeers = State#state.lazy_peers -- [Node],
     {noreply, State#state{eager_peers = EagerPeers, lazy_peers = LazyPeers}};
-
 %% Re-subscribe if a watched source (hyparview events) restarted.
 handle_info({mycelium_source_monitor, retry, Source}, State) ->
     {noreply, State#state{
-        watch = mycelium_source_monitor:retry(Source, State#state.watch)}};
-
+        watch = mycelium_source_monitor:retry(Source, State#state.watch)
+    }};
 %% Source restart, or a subscriber, going down.
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case mycelium_source_monitor:down(Ref, State#state.watch) of
@@ -288,20 +288,21 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
                     {noreply, State}
             end
     end;
-
 %% Periodic cleanup using HLC wall time
 handle_info(cleanup, State) ->
     NowWall = mycelium_hlc:wall_time(mycelium_hlc:now()),
     Cutoff = NowWall - ?MESSAGE_TTL,
 
     %% Remove old messages based on HLC wall time
-    Received = maps:filter(fun(_MsgId, {_Payload, HLC}) ->
-        mycelium_hlc:wall_time(HLC) > Cutoff
-    end, State#state.received),
+    Received = maps:filter(
+        fun(_MsgId, {_Payload, HLC}) ->
+            mycelium_hlc:wall_time(HLC) > Cutoff
+        end,
+        State#state.received
+    ),
 
     erlang:send_after(?CLEANUP_INTERVAL, self(), cleanup),
     {noreply, State#state{received = Received}};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -323,17 +324,23 @@ generate_msg_id() ->
 
 send_gossip(MsgId, Tag, Payload, Origin, Peers, State) ->
     Msg = {?PLUMTREE_TAG, {gossip, MsgId, Tag, Payload, Origin}},
-    lists:foreach(fun(Peer) ->
-        erlang:send({?SERVER, Peer}, Msg, [nosuspend])
-    end, Peers),
+    lists:foreach(
+        fun(Peer) ->
+            erlang:send({?SERVER, Peer}, Msg, [nosuspend])
+        end,
+        Peers
+    ),
     mycelium_metrics:gossip_sent(length(Peers)),
     State#state{gossip_sent = State#state.gossip_sent + length(Peers)}.
 
 send_ihaves(MsgId, Peers, State) ->
     Msg = {?PLUMTREE_TAG, {ihave, MsgId, node()}},
-    lists:foreach(fun(Peer) ->
-        erlang:send({?SERVER, Peer}, Msg, [nosuspend])
-    end, Peers),
+    lists:foreach(
+        fun(Peer) ->
+            erlang:send({?SERVER, Peer}, Msg, [nosuspend])
+        end,
+        Peers
+    ),
     mycelium_metrics:ihave_sent(length(Peers)),
     State#state{ihave_sent = State#state.ihave_sent + length(Peers)}.
 
@@ -381,6 +388,9 @@ cancel_pending_ihave(MsgId, State) ->
     end.
 
 deliver_to_subscribers(Message, Subscribers) ->
-    maps:foreach(fun(Pid, _Ref) ->
-        Pid ! {plumtree_broadcast, Message}
-    end, Subscribers).
+    maps:foreach(
+        fun(Pid, _Ref) ->
+            Pid ! {plumtree_broadcast, Message}
+        end,
+        Subscribers
+    ).

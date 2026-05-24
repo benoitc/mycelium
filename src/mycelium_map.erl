@@ -34,10 +34,18 @@
 -behaviour(mycelium_replica).
 
 %% Public API
--export([new/1, new/2, delete_map/1,
-         put/3, remove/2, delete/2,
-         get/2, keys/1, to_list/1,
-         subscribe/1, subscribe/2, unsubscribe/1, unsubscribe/2]).
+-export([
+    new/1, new/2,
+    delete_map/1,
+    put/3,
+    remove/2,
+    delete/2,
+    get/2,
+    keys/1,
+    to_list/1,
+    subscribe/1, subscribe/2,
+    unsubscribe/1, unsubscribe/2
+]).
 
 %% Name helpers (used by the instance supervisor).
 -export([owner_name/1, replica_name/1, tab_name/1]).
@@ -46,8 +54,12 @@
 -export([start_link/2]).
 
 %% mycelium_replica callbacks.
--export([replica_merge_delta/2, replica_apply_full_sync/2,
-         replica_full_sync_snapshot/1, replica_remove_node/2]).
+-export([
+    replica_merge_delta/2,
+    replica_apply_full_sync/2,
+    replica_full_sync_snapshot/1,
+    replica_remove_node/2
+]).
 
 %% gen_server callbacks.
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -58,27 +70,29 @@
 -define(STORE_PREFIX, "mycelium_map_store$").
 -define(DEFAULT_MAP_DIR, "data/maps").
 
--type opts() :: #{validator => fun((term()) -> boolean()) | {module(), atom()},
-                  tombstone_ttl_ms => non_neg_integer(),
-                  scan_ms => pos_integer(),
-                  prune_on_peer_down => boolean(),
-                  persist => boolean()}.
+-type opts() :: #{
+    validator => fun((term()) -> boolean()) | {module(), atom()},
+    tombstone_ttl_ms => non_neg_integer(),
+    scan_ms => pos_integer(),
+    prune_on_peer_down => boolean(),
+    persist => boolean()
+}.
 -export_type([opts/0]).
 
 -record(state, {
-    name             :: atom(),
-    replica          :: atom(),
-    tab              :: ets:tid(),
-    map              :: mycelium_ormap:ormap(),
-    validator        :: fun((term()) -> boolean()),
-    scan_ms          :: pos_integer(),
+    name :: atom(),
+    replica :: atom(),
+    tab :: ets:tid(),
+    map :: mycelium_ormap:ormap(),
+    validator :: fun((term()) -> boolean()),
+    scan_ms :: pos_integer(),
     tombstone_ttl_ms :: non_neg_integer(),
-    prune            :: boolean(),
+    prune :: boolean(),
     subscribers = #{} :: #{pid() => reference()},
     %% Optional disk persistence (opt-in via `persist'): WAL+snapshot handle
     %% and a dirty flag so the scan only snapshots on churn.
-    log         = undefined :: mycelium_replica_log:handle(),
-    dirty       = false :: boolean()
+    log = undefined :: mycelium_replica_log:handle(),
+    dirty = false :: boolean()
 }).
 
 %%====================================================================
@@ -125,11 +139,12 @@ delete(Name, Key) -> remove(Name, Key).
 -spec get(atom(), term()) -> {ok, term()} | not_found.
 get(Name, Key) ->
     case tab(Name) of
-        undefined -> not_found;
+        undefined ->
+            not_found;
         Tab ->
             case ets:lookup(Tab, Key) of
                 [{_, Value}] -> {ok, Value};
-                []           -> not_found
+                [] -> not_found
             end
     end.
 
@@ -138,7 +153,7 @@ get(Name, Key) ->
 keys(Name) ->
     case tab(Name) of
         undefined -> [];
-        Tab       -> [K || {K, _V} <- ets:tab2list(Tab)]
+        Tab -> [K || {K, _V} <- ets:tab2list(Tab)]
     end.
 
 %% @doc Live key/value pairs (lock-free ETS read).
@@ -146,7 +161,7 @@ keys(Name) ->
 to_list(Name) ->
     case tab(Name) of
         undefined -> [];
-        Tab       -> ets:tab2list(Tab)
+        Tab -> ets:tab2list(Tab)
     end.
 
 %% @doc Subscribe the calling process to `{mycelium_map, Name, Event}'
@@ -169,10 +184,10 @@ unsubscribe(Name, Pid) when is_pid(Pid) ->
 %% Name helpers
 %%====================================================================
 
-owner_name(Name)   -> derived(?OWNER_PREFIX, Name).
+owner_name(Name) -> derived(?OWNER_PREFIX, Name).
 replica_name(Name) -> derived(?REPLICA_PREFIX, Name).
-tab_name(Name)     -> derived(?TAB_PREFIX, Name).
-store_name(Name)   -> derived(?STORE_PREFIX, Name).
+tab_name(Name) -> derived(?TAB_PREFIX, Name).
+store_name(Name) -> derived(?STORE_PREFIX, Name).
 
 derived(Prefix, Name) ->
     list_to_atom(Prefix ++ atom_to_list(Name)).
@@ -212,25 +227,32 @@ init({Name, Opts}) ->
     %% Trap exits so terminate/2 runs on supervisor shutdown and closes the
     %% disk_log cleanly (we link to it via open).
     process_flag(trap_exit, true),
-    Tab = ets:new(tab_name(Name),
-                  [named_table, protected, set, {read_concurrency, true}]),
+    Tab = ets:new(
+        tab_name(Name),
+        [named_table, protected, set, {read_concurrency, true}]
+    ),
     Scan = opt(scan_ms, Opts, cfg(mycelium_map_scan_ms, 1000)),
-    Ttl  = opt(tombstone_ttl_ms, Opts,
-               cfg(mycelium_map_tombstone_ttl_ms, 3600000)),
+    Ttl = opt(
+        tombstone_ttl_ms,
+        Opts,
+        cfg(mycelium_map_tombstone_ttl_ms, 3600000)
+    ),
     %% Optional disk recovery. Seeds both the OR-Map and the ETS read cache
     %% from the persisted state; absorb_clock keeps the HLC monotonic.
     {Log, Map0} = open_store(Name, maps:get(persist, Opts, false)),
     seed_ets(Tab, Map0),
     arm_scan(Scan),
-    {ok, #state{name = Name,
-                replica = replica_name(Name),
-                tab = Tab,
-                map = Map0,
-                validator = normalise_validator(maps:get(validator, Opts, undefined)),
-                scan_ms = Scan,
-                tombstone_ttl_ms = Ttl,
-                prune = maps:get(prune_on_peer_down, Opts, false),
-                log = Log}}.
+    {ok, #state{
+        name = Name,
+        replica = replica_name(Name),
+        tab = Tab,
+        map = Map0,
+        validator = normalise_validator(maps:get(validator, Opts, undefined)),
+        scan_ms = Scan,
+        tombstone_ttl_ms = Ttl,
+        prune = maps:get(prune_on_peer_down, Opts, false),
+        log = Log
+    }}.
 
 %% Open the persistent store when `persist' is set; otherwise run with no
 %% log handle (every log call is a no-op). A failed open degrades to
@@ -244,14 +266,19 @@ open_store(Name, true) ->
             ok = mycelium_ormap:absorb_clock(Map),
             {Log, Map};
         {error, Reason} ->
-            logger:warning("mycelium_map ~p: persistence disabled, open "
-                           "failed: ~p", [Name, Reason]),
+            logger:warning(
+                "mycelium_map ~p: persistence disabled, open "
+                "failed: ~p",
+                [Name, Reason]
+            ),
             {undefined, mycelium_ormap:new()}
     end.
 
 seed_ets(Tab, Map) ->
-    lists:foreach(fun({K, V}) -> ets:insert(Tab, {K, V}) end,
-                  mycelium_ormap:to_list(Map)).
+    lists:foreach(
+        fun({K, V}) -> ets:insert(Tab, {K, V}) end,
+        mycelium_ormap:to_list(Map)
+    ).
 
 handle_call({put, Key, Value}, _From, State) ->
     case run_validator(State#state.validator, Value) of
@@ -264,36 +291,37 @@ handle_call({put, Key, Value}, _From, State) ->
         false ->
             {reply, {error, invalid_value}, State}
     end;
-
 handle_call({remove, Key}, _From, State) ->
     Map = mycelium_ormap:remove(Key, State#state.map),
     ets:delete(State#state.tab, Key),
     notify(State, {remove, Key}),
     mycelium_replica:broadcast_update(State#state.replica, {remove, Key}),
     {reply, ok, persist_key(Key, sync, State#state{map = Map})};
-
 handle_call({subscribe, Pid}, _From, State) ->
     case maps:is_key(Pid, State#state.subscribers) of
-        true  -> {reply, ok, State};
+        true ->
+            {reply, ok, State};
         false ->
             Ref = monitor(process, Pid),
             {reply, ok, State#state{
-                subscribers = maps:put(Pid, Ref, State#state.subscribers)}}
+                subscribers = maps:put(Pid, Ref, State#state.subscribers)
+            }}
     end;
-
 handle_call({unsubscribe, Pid}, _From, State) ->
     case maps:take(Pid, State#state.subscribers) of
-        {Ref, Subs} -> demonitor(Ref, [flush]), {reply, ok, State#state{subscribers = Subs}};
-        error       -> {reply, ok, State}
+        {Ref, Subs} ->
+            demonitor(Ref, [flush]),
+            {reply, ok, State#state{subscribers = Subs}};
+        error ->
+            {reply, ok, State}
     end;
-
 handle_call(snapshot, _From, State) ->
-    Reply = case mycelium_ormap:is_empty(State#state.map) of
-        true  -> empty;
-        false -> {sync, State#state.map}
-    end,
+    Reply =
+        case mycelium_ormap:is_empty(State#state.map) of
+            true -> empty;
+            false -> {sync, State#state.map}
+        end,
     {reply, Reply, State};
-
 handle_call(_Req, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -305,14 +333,15 @@ handle_cast({merge, Incoming}, State) ->
         mycelium_crdt_wire:ingest(State#state.map, Incoming, State#state.validator),
     State1 = persist_keys(maps:keys(Accepted), nosync, State#state{map = Map}),
     {noreply, project_keys(maps:keys(Accepted), State1)};
-
 handle_cast({remove_node, Node}, State = #state{prune = true}) ->
-    Drop = [K || K <- mycelium_ormap:keys(State#state.map),
-                 owned_only_by(K, Node, State#state.map)],
+    Drop = [
+        K
+     || K <- mycelium_ormap:keys(State#state.map),
+        owned_only_by(K, Node, State#state.map)
+    ],
     {noreply, lists:foldl(fun drop_key/2, State, Drop)};
 handle_cast({remove_node, _Node}, State) ->
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -326,18 +355,16 @@ handle_info(scan, State) ->
     Dirty = State#state.dirty orelse map_size(Map) =/= map_size(Old),
     State1 = State#state{map = Map, dirty = false},
     case Dirty of
-        true  -> _ = mycelium_replica_log:snapshot(State1#state.log, Map);
+        true -> _ = mycelium_replica_log:snapshot(State1#state.log, Map);
         false -> ok
     end,
     arm_scan(State1#state.scan_ms),
     {noreply, State1};
-
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case maps:get(Pid, State#state.subscribers, undefined) of
         Ref -> {noreply, State#state{subscribers = maps:remove(Pid, State#state.subscribers)}};
-        _   -> {noreply, State}
+        _ -> {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -357,7 +384,9 @@ project_key(Key, State) ->
     case mycelium_ormap:get(Key, State#state.map) of
         {ok, Value} ->
             case ets:lookup(State#state.tab, Key) of
-                [{_, Value}] -> State;             %% unchanged
+                %% unchanged
+                [{_, Value}] ->
+                    State;
                 _ ->
                     ets:insert(State#state.tab, {Key, Value}),
                     notify(State, {put, Key, Value}),
@@ -365,8 +394,9 @@ project_key(Key, State) ->
             end;
         not_found ->
             case ets:lookup(State#state.tab, Key) of
-                [] -> State;
-                _  ->
+                [] ->
+                    State;
+                _ ->
                     ets:delete(State#state.tab, Key),
                     notify(State, {remove, Key}),
                     State
@@ -404,7 +434,7 @@ persist_keys(Keys, Sync, #state{log = Log, map = Map} = State) ->
     Delta = entries_of(Keys, Map),
     ok = mycelium_replica_log:append(Log, Delta),
     case Sync of
-        sync   -> ok = mycelium_replica_log:sync(Log);
+        sync -> ok = mycelium_replica_log:sync(Log);
         nosync -> ok
     end,
     State#state{dirty = State#state.dirty orelse map_size(Delta) > 0}.
@@ -414,25 +444,34 @@ entries_of(Keys, Map) ->
         fun(Key, Acc) ->
             case mycelium_ormap:get_entry(Key, Map) of
                 {ok, Entry} -> Acc#{Key => Entry};
-                not_found   -> Acc
+                not_found -> Acc
             end
-        end, #{}, Keys).
+        end,
+        #{},
+        Keys
+    ).
 
 call(Name, Msg) ->
-    try gen_server:call(owner_name(Name), Msg)
-    catch exit:{noproc, _} -> {error, no_such_map};
-          exit:{{nodedown, _}, _} -> {error, no_such_map}
+    try
+        gen_server:call(owner_name(Name), Msg)
+    catch
+        exit:{noproc, _} -> {error, no_such_map};
+        exit:{{nodedown, _}, _} -> {error, no_such_map}
     end.
 
 tab(Name) ->
     ets:whereis(tab_name(Name)).
 
-normalise_validator(undefined)        -> fun(_) -> true end;
+normalise_validator(undefined) -> fun(_) -> true end;
 normalise_validator(Fun) when is_function(Fun, 1) -> Fun;
-normalise_validator({M, F})           -> fun(V) -> M:F(V) end.
+normalise_validator({M, F}) -> fun(V) -> M:F(V) end.
 
 run_validator(Fun, Value) ->
-    try Fun(Value) =:= true catch _:_ -> false end.
+    try
+        Fun(Value) =:= true
+    catch
+        _:_ -> false
+    end.
 
 arm_scan(Scan) -> erlang:send_after(Scan, self(), scan).
 

@@ -78,8 +78,9 @@ lookup_key(Node) ->
 lookup_pin(Node) when is_binary(Node) ->
     try binary_to_existing_atom(Node, utf8) of
         Atom -> lookup_pin(Atom)
-    catch _:_ ->
-        not_pinned
+    catch
+        _:_ ->
+            not_pinned
     end;
 lookup_pin(Node) ->
     case ets:lookup(?TABLE, Node) of
@@ -98,7 +99,7 @@ delete_key(Node) ->
 is_trusted(Node, PubKey) ->
     case lookup_pin(Node) of
         {pinned, PubKey} -> true;
-        _                -> false
+        _ -> false
     end.
 
 %% @doc List all trusted nodes
@@ -146,8 +147,7 @@ init([]) ->
     %% Initialize node keypair
     case mycelium_dist_auth:ensure_keypair() of
         ok -> ok;
-        {error, Reason} ->
-            error_logger:warning_msg("Failed to initialize keypair: ~p~n", [Reason])
+        {error, Reason} -> error_logger:warning_msg("Failed to initialize keypair: ~p~n", [Reason])
     end,
 
     {ok, #state{trust_mode = TrustMode, key_dir = KeyDir}}.
@@ -168,7 +168,6 @@ handle_call({store_key, Node, PubKey, TrustLevel}, _From, State) ->
         _ -> ok
     end,
     {reply, ok, State};
-
 handle_call({store_key_if_new, Node, PubKey}, _From, State) ->
     case ets:lookup(?TABLE, Node) of
         [] ->
@@ -194,21 +193,18 @@ handle_call({store_key_if_new, Node, PubKey}, _From, State) ->
             %% Different key - possible key rotation or attack
             error_logger:warning_msg(
                 "Key mismatch for node ~p - existing key differs from presented key~n",
-                [Node]),
+                [Node]
+            ),
             {reply, {error, key_mismatch}, State}
     end;
-
 handle_call({delete_key, Node}, _From, State) ->
     true = ets:delete(?TABLE, Node),
     delete_trusted_key(State#state.key_dir, Node),
     {reply, ok, State};
-
 handle_call({set_trust_mode, Mode}, _From, State) ->
     {reply, ok, State#state{trust_mode = Mode}};
-
 handle_call(get_trust_mode, _From, State) ->
     {reply, State#state.trust_mode, State};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -230,9 +226,12 @@ load_trusted_keys(KeyDir) ->
     TrustedDir = filename:join(KeyDir, "trusted"),
     case file:list_dir(TrustedDir) of
         {ok, Files} ->
-            lists:foreach(fun(File) ->
-                load_trusted_key_file(TrustedDir, File)
-            end, Files);
+            lists:foreach(
+                fun(File) ->
+                    load_trusted_key_file(TrustedDir, File)
+                end,
+                Files
+            );
         {error, enoent} ->
             %% Directory doesn't exist yet, create it
             filelib:ensure_dir(filename:join(TrustedDir, "dummy")),
@@ -240,7 +239,8 @@ load_trusted_keys(KeyDir) ->
         {error, Reason} ->
             error_logger:warning_msg(
                 "Failed to list trusted keys directory ~p: ~p~n",
-                [TrustedDir, Reason])
+                [TrustedDir, Reason]
+            )
     end.
 
 load_trusted_key_file(Dir, File) ->
@@ -267,14 +267,17 @@ load_trusted_key_file(Dir, File) ->
                             ets:insert(?TABLE, Record);
                         {error, _} ->
                             error_logger:warning_msg(
-                                "Invalid node name in key file: ~p~n", [File])
+                                "Invalid node name in key file: ~p~n", [File]
+                            )
                     end;
                 {ok, _} ->
                     error_logger:warning_msg(
-                        "Invalid key size in file: ~p~n", [File]);
+                        "Invalid key size in file: ~p~n", [File]
+                    );
                 {error, Reason} ->
                     error_logger:warning_msg(
-                        "Failed to read key file ~p: ~p~n", [File, Reason])
+                        "Failed to read key file ~p: ~p~n", [File, Reason]
+                    )
             end;
         _ ->
             %% Ignore non-.pub files
@@ -295,11 +298,13 @@ save_trusted_key(KeyDir, Node, PubKey) ->
                 {error, Reason} ->
                     error_logger:warning_msg(
                         "Failed to save trusted key for ~p: ~p~n",
-                        [Node, Reason])
+                        [Node, Reason]
+                    )
             end;
         {error, Reason} ->
             error_logger:warning_msg(
-                "Failed to create trusted keys directory: ~p~n", [Reason])
+                "Failed to create trusted keys directory: ~p~n", [Reason]
+            )
     end.
 
 %% @doc Delete a trusted key from disk

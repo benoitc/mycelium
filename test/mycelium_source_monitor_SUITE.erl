@@ -59,10 +59,12 @@ plumtree_resubscribes_replicas(_Config) ->
 
     exit(Old, kill),
     wait_until(fun() -> restarted(mycelium_plumtree, Old) end, 5000),
-    wait_until(fun() -> subset(OldSubs, subs(mycelium_plumtree, ?PLUMTREE_SUBS_IDX)) end,
-               5000),
+    wait_until(
+        fun() -> subset(OldSubs, subs(mycelium_plumtree, ?PLUMTREE_SUBS_IDX)) end,
+        5000
+    ),
 
-    [ ?assert(is_process_alive(P)) || P <- OldSubs ],
+    [?assert(is_process_alive(P)) || P <- OldSubs],
     ok.
 
 %% plumtree and a replica both subscribe to hyparview_events from other
@@ -70,16 +72,19 @@ plumtree_resubscribes_replicas(_Config) ->
 hyparview_events_resubscribes_watchers(_Config) ->
     Old = whereis(mycelium_hyparview_events),
     Watchers = [whereis(mycelium_reminder_replica), whereis(mycelium_plumtree)],
-    [ ?assert(is_pid(P)) || P <- Watchers ],
+    [?assert(is_pid(P)) || P <- Watchers],
     ?assert(subset(Watchers, subs(mycelium_hyparview_events, ?HYPARVIEW_EVENTS_SUBS_IDX))),
 
     exit(Old, kill),
     wait_until(fun() -> restarted(mycelium_hyparview_events, Old) end, 5000),
-    wait_until(fun() ->
-        subset(Watchers, subs(mycelium_hyparview_events, ?HYPARVIEW_EVENTS_SUBS_IDX))
-    end, 5000),
+    wait_until(
+        fun() ->
+            subset(Watchers, subs(mycelium_hyparview_events, ?HYPARVIEW_EVENTS_SUBS_IDX))
+        end,
+        5000
+    ),
 
-    [ ?assert(is_process_alive(P)) || P <- Watchers ],
+    [?assert(is_process_alive(P)) || P <- Watchers],
     %% They were not restarted (different subtrees), so their pids hold.
     ?assertEqual(whereis(mycelium_plumtree), lists:last(Watchers)),
     ok.
@@ -93,8 +98,10 @@ shard_resubscribes_reminder(_Config) ->
 
     exit(Old, kill),
     wait_until(fun() -> restarted(mycelium_shard, Old) end, 5000),
-    wait_until(fun() -> lists:member(RemPid, subs(mycelium_shard, ?SHARD_SUBS_IDX)) end,
-               5000),
+    wait_until(
+        fun() -> lists:member(RemPid, subs(mycelium_shard, ?SHARD_SUBS_IDX)) end,
+        5000
+    ),
 
     %% The reminder never died (it lives in a different subtree).
     ?assertEqual(RemPid, whereis(mycelium_reminder)),
@@ -108,13 +115,13 @@ shard_resubscribes_reminder(_Config) ->
 subs(Name, Idx) ->
     case whereis(Name) of
         undefined -> [];
-        _         -> maps:keys(element(Idx, sys:get_state(Name)))
+        _ -> maps:keys(element(Idx, sys:get_state(Name)))
     end.
 
 restarted(Name, Old) ->
     case whereis(Name) of
         undefined -> false;
-        New       -> is_pid(New) andalso New =/= Old
+        New -> is_pid(New) andalso New =/= Old
     end.
 
 subset(Wanted, Have) ->
@@ -126,10 +133,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case catch Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(25), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(25),
+                    wait_loop(Fun, Deadline)
             end
     end.

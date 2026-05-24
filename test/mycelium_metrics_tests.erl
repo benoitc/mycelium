@@ -11,9 +11,11 @@
 
 with_instrument(Tests) ->
     {setup,
-     fun() -> {ok, _} = application:ensure_all_started(instrument), ok end,
-     fun(_) -> ok end,
-     Tests}.
+        fun() ->
+            {ok, _} = application:ensure_all_started(instrument),
+            ok
+        end,
+        fun(_) -> ok end, Tests}.
 
 emit_test_() ->
     with_instrument([
@@ -45,8 +47,7 @@ cached_test_() ->
         ?_test(begin
             ok = mycelium_metrics:gc_reap('first@x'),
             ok = mycelium_metrics:gc_reap('second@x'),
-            Key = {mycelium_metrics, instrument,
-                   <<"mycelium.dist_gc.reap">>, counter},
+            Key = {mycelium_metrics, instrument, <<"mycelium.dist_gc.reap">>, counter},
             ?assertNotEqual(undefined, persistent_term:get(Key, undefined))
         end)
     ]).
@@ -55,18 +56,19 @@ cached_test_() ->
 %% not running. Useful during early boot or in offline test contexts.
 safe_when_instrument_missing_test_() ->
     {setup,
-     fun() ->
-        ok = application:stop(instrument),
-        ok = clear_metrics_cache(),
-        ok
-     end,
-     fun(_) -> ok end,
-     [?_assertEqual(ok, mycelium_metrics:gc_reap('peer@x'))]}.
+        fun() ->
+            ok = application:stop(instrument),
+            ok = clear_metrics_cache(),
+            ok
+        end,
+        fun(_) -> ok end, [?_assertEqual(ok, mycelium_metrics:gc_reap('peer@x'))]}.
 
 clear_metrics_cache() ->
-    [persistent_term:erase(K)
+    [
+        persistent_term:erase(K)
      || {K, _} <- persistent_term:get(),
         is_tuple(K),
         tuple_size(K) > 0,
-        element(1, K) =:= mycelium_metrics],
+        element(1, K) =:= mycelium_metrics
+    ],
     ok.

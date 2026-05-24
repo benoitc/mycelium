@@ -95,8 +95,11 @@ lookup(Name) ->
     case ets:lookup(?TAB, Name) of
         [{_, Pid}] ->
             case is_process_alive(Pid) of
-                true  -> {ok, Pid};
-                false -> ets:delete(?TAB, Name), not_found
+                true ->
+                    {ok, Pid};
+                false ->
+                    ets:delete(?TAB, Name),
+                    not_found
             end;
         [] ->
             not_found
@@ -105,14 +108,24 @@ lookup(Name) ->
 start_declared_maps() ->
     Declared = application:get_env(mycelium, replicated_maps, []),
     lists:foreach(
-      fun({Name, Opts}) when is_atom(Name), is_map(Opts) ->
-              case start_map(Name, Opts) of
-                  {ok, _}        -> ok;
-                  {error, Reason} ->
-                      logger:error("mycelium_map_sup: declared map ~p "
-                                   "failed to start: ~p", [Name, Reason])
-              end;
-         (Bad) ->
-              logger:error("mycelium_map_sup: invalid replicated_maps "
-                           "entry (want {atom(), map()}): ~p", [Bad])
-      end, Declared).
+        fun
+            ({Name, Opts}) when is_atom(Name), is_map(Opts) ->
+                case start_map(Name, Opts) of
+                    {ok, _} ->
+                        ok;
+                    {error, Reason} ->
+                        logger:error(
+                            "mycelium_map_sup: declared map ~p "
+                            "failed to start: ~p",
+                            [Name, Reason]
+                        )
+                end;
+            (Bad) ->
+                logger:error(
+                    "mycelium_map_sup: invalid replicated_maps "
+                    "entry (want {atom(), map()}): ~p",
+                    [Bad]
+                )
+        end,
+        Declared
+    ).

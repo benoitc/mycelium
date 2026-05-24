@@ -95,12 +95,13 @@ time_left(Deadline) ->
 %% the inner function are still propagated; they just record as failures.
 with_metrics(Role, F) ->
     Start = erlang:monotonic_time(millisecond),
-    Outcome = try F() of
-        {ok, _} = Ok -> {ok, Ok};
-        Other        -> {fail, Other}
-    catch
-        Class:Reason:Stack -> {raise, Class, Reason, Stack}
-    end,
+    Outcome =
+        try F() of
+            {ok, _} = Ok -> {ok, Ok};
+            Other -> {fail, Other}
+        catch
+            Class:Reason:Stack -> {raise, Class, Reason, Stack}
+        end,
     Duration = erlang:monotonic_time(millisecond) - Start,
     case Outcome of
         {ok, Result} ->
@@ -156,8 +157,12 @@ do_outgoing(Conn, MyStream, TargetNode, Timeout) ->
                     case wait_for_peer_stream(Conn, Timeout) of
                         {ok, PeerStream, Buffer} ->
                             client_recv_hello(
-                                Conn, MyStream, PeerStream, Buffer,
-                                TargetNode, Timeout
+                                Conn,
+                                MyStream,
+                                PeerStream,
+                                Buffer,
+                                TargetNode,
+                                Timeout
                             );
                         {error, Reason} ->
                             {error, Reason}
@@ -183,8 +188,13 @@ client_recv_hello(Conn, MyStream, PeerStream, Buffer, TargetNode, Timeout) ->
                     case trust_check(ClaimedNode, PeerPubKey) of
                         ok ->
                             client_send_challenge(
-                                Conn, MyStream, PeerStream, Rest,
-                                ClaimedNode, PeerPubKey, Timeout
+                                Conn,
+                                MyStream,
+                                PeerStream,
+                                Rest,
+                                ClaimedNode,
+                                PeerPubKey,
+                                Timeout
                             );
                         {error, Reason} ->
                             {error, Reason}
@@ -195,12 +205,17 @@ client_recv_hello(Conn, MyStream, PeerStream, Buffer, TargetNode, Timeout) ->
                     %% own cookie_only_nodes whitelist; otherwise a
                     %% rogue server reachable through discovery could
                     %% skip Ed25519.
-                    case TargetNode =/= undefined
-                         andalso mycelium_dist_auth:is_cookie_only_allowed(
-                                   TargetNode
-                                 ) of
-                        true  -> warn_cookie_only(), {ok, undefined};
-                        _     -> {error, unexpected_auth_ok}
+                    case
+                        TargetNode =/= undefined andalso
+                            mycelium_dist_auth:is_cookie_only_allowed(
+                                TargetNode
+                            )
+                    of
+                        true ->
+                            warn_cookie_only(),
+                            {ok, undefined};
+                        _ ->
+                            {error, unexpected_auth_ok}
                     end;
                 {fail, Reason} ->
                     {error, {auth_rejected, Reason}};
@@ -222,7 +237,7 @@ trust_check(Node, PubKey) ->
             {error, key_mismatch};
         not_pinned ->
             case trust_mode() of
-                tofu   -> ok;
+                tofu -> ok;
                 strict -> {error, untrusted_key}
             end
     end.
@@ -233,16 +248,32 @@ client_send_challenge(Conn, MyStream, PeerStream, Buffer, PeerNode, PeerPubKey, 
     case stream_send(Conn, MyStream, Msg) of
         ok ->
             client_recv_challenge(
-                Conn, MyStream, PeerStream, Buffer,
-                PeerNode, PeerPubKey, MyNonce, MyTs, MyMono, Timeout
+                Conn,
+                MyStream,
+                PeerStream,
+                Buffer,
+                PeerNode,
+                PeerPubKey,
+                MyNonce,
+                MyTs,
+                MyMono,
+                Timeout
             );
         {error, Reason} ->
             {error, {send_challenge_failed, Reason}}
     end.
 
 client_recv_challenge(
-    Conn, MyStream, PeerStream, Buffer, PeerNode, PeerPubKey,
-    MyNonce, MyTs, MyMono, Timeout
+    Conn,
+    MyStream,
+    PeerStream,
+    Buffer,
+    PeerNode,
+    PeerPubKey,
+    MyNonce,
+    MyTs,
+    MyMono,
+    Timeout
 ) ->
     case decode_with_buffer(Conn, PeerStream, Buffer, Timeout) of
         {ok, Bin, Rest} ->
@@ -251,10 +282,18 @@ client_recv_challenge(
                     case mycelium_dist_auth:validate_peer_ts(PeerTs) of
                         ok ->
                             client_send_response(
-                                Conn, MyStream, PeerStream, Rest,
-                                PeerNode, PeerPubKey,
-                                MyNonce, MyTs, MyMono,
-                                PeerNonce, PeerTs, Timeout
+                                Conn,
+                                MyStream,
+                                PeerStream,
+                                Rest,
+                                PeerNode,
+                                PeerPubKey,
+                                MyNonce,
+                                MyTs,
+                                MyMono,
+                                PeerNonce,
+                                PeerTs,
+                                Timeout
                             );
                         {error, _} = E ->
                             E
@@ -269,8 +308,18 @@ client_recv_challenge(
     end.
 
 client_send_response(
-    Conn, MyStream, PeerStream, Buffer, PeerNode, PeerPubKey,
-    MyNonce, MyTs, MyMono, PeerNonce, PeerTs, Timeout
+    Conn,
+    MyStream,
+    PeerStream,
+    Buffer,
+    PeerNode,
+    PeerPubKey,
+    MyNonce,
+    MyTs,
+    MyMono,
+    PeerNonce,
+    PeerTs,
+    Timeout
 ) ->
     case sign_for_peer(PeerNonce, PeerTs, PeerPubKey) of
         {ok, MySig} ->
@@ -278,8 +327,15 @@ client_send_response(
             case stream_send(Conn, MyStream, Resp) of
                 ok ->
                     client_recv_response(
-                        Conn, PeerStream, Buffer,
-                        PeerNode, PeerPubKey, MyNonce, MyTs, MyMono, Timeout
+                        Conn,
+                        PeerStream,
+                        Buffer,
+                        PeerNode,
+                        PeerPubKey,
+                        MyNonce,
+                        MyTs,
+                        MyMono,
+                        Timeout
                     );
                 {error, Reason} ->
                     {error, {send_response_failed, Reason}}
@@ -288,22 +344,37 @@ client_send_response(
             Error
     end.
 
-client_recv_response(Conn, PeerStream, Buffer, PeerNode, PeerPubKey,
-                     MyNonce, MyTs, MyMono, Timeout) ->
+client_recv_response(
+    Conn,
+    PeerStream,
+    Buffer,
+    PeerNode,
+    PeerPubKey,
+    MyNonce,
+    MyTs,
+    MyMono,
+    Timeout
+) ->
     case decode_with_buffer(Conn, PeerStream, Buffer, Timeout) of
         {ok, Bin, Rest} ->
             case mycelium_dist_protocol:decode(Bin) of
                 {response, PeerSig} ->
                     case
                         mycelium_dist_auth:verify_response(
-                            PeerSig, PeerPubKey, {MyNonce, MyTs, MyMono},
+                            PeerSig,
+                            PeerPubKey,
+                            {MyNonce, MyTs, MyMono},
                             binding()
                         )
                     of
                         true ->
                             client_recv_ok(
-                                Conn, PeerStream, Rest,
-                                PeerNode, PeerPubKey, Timeout
+                                Conn,
+                                PeerStream,
+                                Rest,
+                                PeerNode,
+                                PeerPubKey,
+                                Timeout
                             );
                         false ->
                             {error, signature_verification_failed}
@@ -325,7 +396,7 @@ client_recv_ok(Conn, PeerStream, Buffer, PeerNodeBin, PeerPubKey, Timeout) ->
                     %% Signature verified: now safe to mint the atom.
                     PeerNode = binary_to_atom(PeerNodeBin, utf8),
                     case record_peer(PeerNode, PeerPubKey) of
-                        ok                 -> {ok, PeerNode};
+                        ok -> {ok, PeerNode};
                         {error, _} = Error -> Error
                     end;
                 {fail, Reason} ->
@@ -394,8 +465,12 @@ server_after_hello(Conn, PeerStream, Buffer, PeerNode, PeerPubKey, Timeout) ->
                     case trust_mode() of
                         tofu ->
                             server_open_my_stream(
-                                Conn, PeerStream, Buffer,
-                                PeerNode, PeerPubKey, Timeout
+                                Conn,
+                                PeerStream,
+                                Buffer,
+                                PeerNode,
+                                PeerPubKey,
+                                Timeout
                             );
                         strict ->
                             send_fail_via_uni(Conn, <<"untrusted_key">>),
@@ -432,7 +507,8 @@ warn_cookie_only() ->
             persistent_term:put(Key, true),
             logger:warning(
                 "mycelium: accepted a cookie-only peer (cookie_only_nodes) - "
-                "no Ed25519, not protected against an active MITM.")
+                "no Ed25519, not protected against an active MITM."
+            )
     end.
 
 server_open_my_stream(Conn, PeerStream, Buffer, PeerNode, PeerPubKey, Timeout) ->
@@ -457,8 +533,13 @@ server_send_hello(Conn, MyStream, PeerStream, Buffer, PeerNode, PeerPubKey, Time
             case stream_send(Conn, MyStream, Hello) of
                 ok ->
                     server_send_challenge(
-                        Conn, MyStream, PeerStream, Buffer,
-                        PeerNode, PeerPubKey, Timeout
+                        Conn,
+                        MyStream,
+                        PeerStream,
+                        Buffer,
+                        PeerNode,
+                        PeerPubKey,
+                        Timeout
                     );
                 {error, Reason} ->
                     {error, {send_hello_failed, Reason}}
@@ -473,16 +554,32 @@ server_send_challenge(Conn, MyStream, PeerStream, Buffer, PeerNode, PeerPubKey, 
     case stream_send(Conn, MyStream, Msg) of
         ok ->
             server_recv_challenge(
-                Conn, MyStream, PeerStream, Buffer,
-                PeerNode, PeerPubKey, MyNonce, MyTs, MyMono, Timeout
+                Conn,
+                MyStream,
+                PeerStream,
+                Buffer,
+                PeerNode,
+                PeerPubKey,
+                MyNonce,
+                MyTs,
+                MyMono,
+                Timeout
             );
         {error, Reason} ->
             {error, {send_challenge_failed, Reason}}
     end.
 
 server_recv_challenge(
-    Conn, MyStream, PeerStream, Buffer,
-    PeerNode, PeerPubKey, MyNonce, MyTs, MyMono, Timeout
+    Conn,
+    MyStream,
+    PeerStream,
+    Buffer,
+    PeerNode,
+    PeerPubKey,
+    MyNonce,
+    MyTs,
+    MyMono,
+    Timeout
 ) ->
     case decode_with_buffer(Conn, PeerStream, Buffer, Timeout) of
         {ok, Bin, Rest} ->
@@ -491,10 +588,18 @@ server_recv_challenge(
                     case mycelium_dist_auth:validate_peer_ts(PeerTs) of
                         ok ->
                             server_send_response(
-                                Conn, MyStream, PeerStream, Rest,
-                                PeerNode, PeerPubKey,
-                                MyNonce, MyTs, MyMono,
-                                PeerNonce, PeerTs, Timeout
+                                Conn,
+                                MyStream,
+                                PeerStream,
+                                Rest,
+                                PeerNode,
+                                PeerPubKey,
+                                MyNonce,
+                                MyTs,
+                                MyMono,
+                                PeerNonce,
+                                PeerTs,
+                                Timeout
                             );
                         {error, _} = E ->
                             E
@@ -507,8 +612,18 @@ server_recv_challenge(
     end.
 
 server_send_response(
-    Conn, MyStream, PeerStream, Buffer, PeerNode, PeerPubKey,
-    MyNonce, MyTs, MyMono, PeerNonce, PeerTs, Timeout
+    Conn,
+    MyStream,
+    PeerStream,
+    Buffer,
+    PeerNode,
+    PeerPubKey,
+    MyNonce,
+    MyTs,
+    MyMono,
+    PeerNonce,
+    PeerTs,
+    Timeout
 ) ->
     case sign_for_peer(PeerNonce, PeerTs, PeerPubKey) of
         {ok, MySig} ->
@@ -516,8 +631,16 @@ server_send_response(
             case stream_send(Conn, MyStream, Resp) of
                 ok ->
                     server_recv_response(
-                        Conn, MyStream, PeerStream, Buffer,
-                        PeerNode, PeerPubKey, MyNonce, MyTs, MyMono, Timeout
+                        Conn,
+                        MyStream,
+                        PeerStream,
+                        Buffer,
+                        PeerNode,
+                        PeerPubKey,
+                        MyNonce,
+                        MyTs,
+                        MyMono,
+                        Timeout
                     );
                 {error, Reason} ->
                     {error, {send_response_failed, Reason}}
@@ -527,8 +650,16 @@ server_send_response(
     end.
 
 server_recv_response(
-    Conn, MyStream, PeerStream, Buffer,
-    PeerNode, PeerPubKey, MyNonce, MyTs, MyMono, Timeout
+    Conn,
+    MyStream,
+    PeerStream,
+    Buffer,
+    PeerNode,
+    PeerPubKey,
+    MyNonce,
+    MyTs,
+    MyMono,
+    Timeout
 ) ->
     case decode_with_buffer(Conn, PeerStream, Buffer, Timeout) of
         {ok, Bin, _Rest} ->
@@ -536,7 +667,9 @@ server_recv_response(
                 {response, PeerSig} ->
                     case
                         mycelium_dist_auth:verify_response(
-                            PeerSig, PeerPubKey, {MyNonce, MyTs, MyMono},
+                            PeerSig,
+                            PeerPubKey,
+                            {MyNonce, MyTs, MyMono},
                             binding()
                         )
                     of
@@ -559,7 +692,7 @@ server_send_ok(Conn, MyStream, PeerNodeBin, PeerPubKey) ->
             %% Signature verified: now safe to mint the atom.
             PeerNode = binary_to_atom(PeerNodeBin, utf8),
             case record_peer(PeerNode, PeerPubKey) of
-                ok                 -> {ok, PeerNode};
+                ok -> {ok, PeerNode};
                 {error, _} = Error -> Error
             end;
         {error, Reason} ->
@@ -694,4 +827,3 @@ auth_enabled() ->
 
 trust_mode() ->
     application:get_env(mycelium, auth_trust_mode, tofu).
-

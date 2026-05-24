@@ -78,8 +78,8 @@
 -optional_callbacks([replica_merge_custom/2]).
 
 -record(state, {
-    name  :: atom(),
-    cb    :: module(),
+    name :: atom(),
+    cb :: module(),
     peers = [] :: [node()],
     watch = #{} :: mycelium_source_monitor:watch()
 }).
@@ -117,7 +117,8 @@ init(#{name := Name, callback := Cb}) ->
     %% source restart (a plumtree/hyparview-events crash does not restart
     %% us, so a one-shot subscribe would be silently dropped).
     Watch = mycelium_source_monitor:start(
-              [mycelium_plumtree, mycelium_hyparview_events]),
+        [mycelium_plumtree, mycelium_hyparview_events]
+    ),
     %% Seed from the current active view and pull existing state. peer_up
     %% only fires for FUTURE joins, so an instance started after the cluster
     %% has already formed (e.g. a mycelium_map created at runtime) would
@@ -134,30 +135,26 @@ handle_cast({broadcast, {add, Key, Val}}, #state{name = Name} = State) ->
     Delta = #{Key => {value, Val, #{Dot => true}}},
     mycelium_plumtree:broadcast(Name, {delta, node(), Delta}),
     {noreply, State};
-
 handle_cast({broadcast, {remove, Key}}, #state{name = Name} = State) ->
     %% Tombstone-as-delta: the receiver's OR-Map merge resolves against
     %% any in-flight value by HLC, so a delayed add cannot resurrect it.
     Delta = #{Key => {tombstone, mycelium_hlc:now()}},
     mycelium_plumtree:broadcast(Name, {delta, node(), Delta}),
     {noreply, State};
-
 handle_cast({broadcast_custom, Payload}, #state{name = Name} = State) ->
     mycelium_plumtree:broadcast(Name, {custom, node(), Payload}),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 %% Plumtree delivery scoped to this instance (tag =:= our name).
-handle_info({plumtree_broadcast, {MsgTag, Payload}}, #state{name = Name} = State)
-  when MsgTag =:= Name ->
+handle_info({plumtree_broadcast, {MsgTag, Payload}}, #state{name = Name} = State) when
+    MsgTag =:= Name
+->
     handle_payload(Payload, Name, State);
-
 %% Plumtree delivery for another instance.
 handle_info({plumtree_broadcast, _Other}, State) ->
     {noreply, State};
-
 handle_info({mycelium_event, {peer_up, Node}}, #state{peers = Peers} = State) ->
     case Node =:= node() orelse lists:member(Node, Peers) of
         true ->
@@ -166,46 +163,45 @@ handle_info({mycelium_event, {peer_up, Node}}, #state{peers = Peers} = State) ->
             self() ! {do_full_sync, Node},
             {noreply, State#state{peers = [Node | Peers]}}
     end;
-
-handle_info({mycelium_event, {peer_down, Node, _Reason}},
-            #state{name = Name, cb = Cb, peers = Peers} = State) ->
+handle_info(
+    {mycelium_event, {peer_down, Node, _Reason}},
+    #state{name = Name, cb = Cb, peers = Peers} = State
+) ->
     Cb:replica_remove_node(Name, Node),
     {noreply, State#state{peers = lists:delete(Node, Peers)}};
-
 handle_info({mycelium_event, _Other}, State) ->
     {noreply, State};
-
 %% Seed peers from the current active view and pull their state (see init/1).
 handle_info(seed_initial_sync, #state{peers = Peers} = State) ->
     Seeded = lists:usort(Peers ++ active_view_peers()),
     {noreply, request_sync_from_peers(State#state{peers = Seeded})};
-
 handle_info({do_full_sync, Node}, #state{name = Name, cb = Cb, peers = Peers} = State) ->
     case lists:member(Node, Peers) of
         true ->
             case Cb:replica_full_sync_snapshot(Name) of
-                empty        -> ok;
+                empty -> ok;
                 {sync, Snap} -> send_to_peer(Name, Node, {full_sync, node(), Snap})
             end;
         false ->
             ok
     end,
     {noreply, State};
-
-handle_info({?SYNC_TAG, {full_sync, _FromNode, Snapshot}},
-            #state{name = Name, cb = Cb} = State) ->
+handle_info(
+    {?SYNC_TAG, {full_sync, _FromNode, Snapshot}},
+    #state{name = Name, cb = Cb} = State
+) ->
     Cb:replica_apply_full_sync(Name, Snapshot),
     {noreply, State};
-
 %% A peer that just re-subscribed asks us to push our state to it.
-handle_info({?SYNC_TAG, {request_sync, FromNode}},
-            #state{name = Name, cb = Cb} = State) ->
+handle_info(
+    {?SYNC_TAG, {request_sync, FromNode}},
+    #state{name = Name, cb = Cb} = State
+) ->
     case Cb:replica_full_sync_snapshot(Name) of
-        empty        -> ok;
+        empty -> ok;
         {sync, Snap} -> send_to_peer(Name, FromNode, {full_sync, node(), Snap})
     end,
     {noreply, State};
-
 %% A watched source restarted: re-subscribe (with retry) and, once back,
 %% pull a full sync from known peers to recover deltas missed during the
 %% gap. Full sync rides direct dist messages, not plumtree, so it works
@@ -215,16 +211,14 @@ handle_info({mycelium_source_monitor, retry, Source}, #state{watch = Watch} = St
     Watch1 = mycelium_source_monitor:retry(Source, Watch),
     State1 = State#state{watch = Watch1},
     case (not Was) andalso maps:is_key(Source, Watch1) of
-        true  -> {noreply, request_sync_from_peers(State1)};
+        true -> {noreply, request_sync_from_peers(State1)};
         false -> {noreply, State1}
     end;
-
 handle_info({'DOWN', Ref, process, _Pid, _Reason}, #state{watch = Watch} = State) ->
     case mycelium_source_monitor:down(Ref, Watch) of
         {down, _Source, Watch1} -> {noreply, State#state{watch = Watch1}};
-        ignore                  -> {noreply, State}
+        ignore -> {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -240,7 +234,7 @@ handle_payload({delta, _FromNode, Delta}, Name, #state{cb = Cb} = State) ->
     {noreply, State};
 handle_payload({custom, _FromNode, Payload}, Name, #state{cb = Cb} = State) ->
     case erlang:function_exported(Cb, replica_merge_custom, 2) of
-        true  -> Cb:replica_merge_custom(Name, Payload);
+        true -> Cb:replica_merge_custom(Name, Payload);
         false -> ok
     end,
     {noreply, State};
@@ -256,8 +250,9 @@ send_to_peer(Name, Node, Msg) ->
 active_view_peers() ->
     try mycelium:active_view() of
         Nodes -> [N || N <- Nodes, N =/= node()]
-    catch _:_ ->
-        []
+    catch
+        _:_ ->
+            []
     end.
 
 %% Ask every known peer to push its full state to us. Used after a

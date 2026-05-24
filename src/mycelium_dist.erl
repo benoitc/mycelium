@@ -105,15 +105,18 @@ is_node_name(Node) ->
 ensure_modules_loaded() ->
     lists:foreach(
         fun(M) -> _ = code:ensure_loaded(M) end,
-        [public_key,
-         mycelium_quic_cert,
-         mycelium_discovery,
-         mycelium_discovery_static,
-         mycelium_discovery_file,
-         mycelium_discovery_dns,
-         mycelium_dist_auth_callback,
-         mycelium_dist_auth_stream,
-         mycelium_dist_auth]),
+        [
+            public_key,
+            mycelium_quic_cert,
+            mycelium_discovery,
+            mycelium_discovery_static,
+            mycelium_discovery_file,
+            mycelium_discovery_dns,
+            mycelium_dist_auth_callback,
+            mycelium_dist_auth_stream,
+            mycelium_dist_auth
+        ]
+    ),
     ok.
 
 %% Lazily materialise the QUIC TLS cert/key if they aren't on disk
@@ -135,8 +138,7 @@ ensure_cert() ->
 cert_dir() ->
     case init:get_argument(mycelium_dist_cert_dir) of
         {ok, [[CD] | _]} -> CD;
-        _ ->
-            application:get_env(mycelium, quic_cert_dir, "data/quic")
+        _ -> application:get_env(mycelium, quic_cert_dir, "data/quic")
     end.
 
 %% Project mycelium defaults into the {quic, dist, ...} app env that
@@ -178,7 +180,8 @@ validate_auth_config(QuicDist) ->
             logger:warning(
                 "mycelium: auth_enabled=false - Ed25519 peer authentication is "
                 "OFF. Peers are gated by the dist cookie only, with no "
-                "protection against an active MITM.");
+                "protection against an active MITM."
+            );
         true ->
             ok
     end.
@@ -240,9 +243,10 @@ merge_defaults(User, Defaults) ->
     lists:foldl(
         fun({K, V}, Acc) ->
             case proplists:is_defined(K, Acc) of
-                true  -> Acc;
+                true -> Acc;
                 false -> [{K, V} | Acc]
             end
         end,
         User,
-        Defaults).
+        Defaults
+    ).

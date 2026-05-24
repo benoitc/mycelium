@@ -41,7 +41,7 @@
 summary(Node) when is_atom(Node) ->
     case connection(Node) of
         {ok, Conn} -> quic:get_path_stats(Conn);
-        Err        -> Err
+        Err -> Err
     end.
 
 %% @doc Resolve a peer node to the underlying QUIC connection pid.
@@ -53,7 +53,7 @@ summary(Node) when is_atom(Node) ->
 connection(Node) when is_atom(Node) ->
     case quic_dist:get_controller(Node) of
         {ok, DistCtrl} -> extract_conn(DistCtrl);
-        Err            -> Err
+        Err -> Err
     end.
 
 %% Reach into the dist controller's gen_statem state and pluck the
@@ -71,7 +71,7 @@ extract_conn(DistCtrl) ->
     try
         State = sys:get_state(DistCtrl, 1000),
         case tuple_size(State) >= 2 of
-            true  -> probe_pid(State, element(2, State));
+            true -> probe_pid(State, element(2, State));
             false -> {error, no_conn}
         end
     catch
@@ -97,7 +97,7 @@ scan_state(State) ->
     %% Position 1 is the record tag, skip it; scan the rest.
     case find_first(2, Size, State) of
         {ok, _Pid} = Ok -> Ok;
-        none           -> {error, no_conn}
+        none -> {error, no_conn}
     end.
 
 find_first(Pos, Size, _State) when Pos > Size ->
@@ -105,21 +105,21 @@ find_first(Pos, Size, _State) when Pos > Size ->
 find_first(Pos, Size, State) ->
     Candidate = element(Pos, State),
     case answers_get_path_stats(Candidate) of
-        true  -> {ok, Candidate};
+        true -> {ok, Candidate};
         false -> find_first(Pos + 1, Size, State)
     end.
 
 is_live_pid(P) when is_pid(P) -> erlang:is_process_alive(P);
-is_live_pid(_)                -> false.
+is_live_pid(_) -> false.
 
 answers_get_path_stats(Pid) when is_pid(Pid) ->
     case erlang:is_process_alive(Pid) of
         true ->
             try quic:get_path_stats(Pid) of
                 {ok, _} -> true;
-                _       -> false
+                _ -> false
             catch
-                _:_     -> false
+                _:_ -> false
             end;
         false ->
             false
@@ -132,5 +132,5 @@ answers_get_path_stats(_) ->
 srtt(Node) ->
     case summary(Node) of
         {ok, #{srtt := Us}} -> {ok, Us};
-        {error, _} = Err    -> Err
+        {error, _} = Err -> Err
     end.

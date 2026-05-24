@@ -45,8 +45,10 @@ update(Remote) ->
 %% Compare two HLC timestamps
 %% Returns: lt | eq | gt
 -spec compare(timestamp(), timestamp()) -> lt | eq | gt.
-compare(#timestamp{wall_time = WA, logical = LA},
-        #timestamp{wall_time = WB, logical = LB}) ->
+compare(
+    #timestamp{wall_time = WA, logical = LA},
+    #timestamp{wall_time = WB, logical = LB}
+) ->
     if
         WA =:= WB, LA =:= LB -> eq;
         WA < WB -> lt;
@@ -91,13 +93,11 @@ init([]) ->
 
 handle_call(now, _From, #{clock := Clock} = State) ->
     {reply, hlc:now(Clock), State};
-
 handle_call({update, Remote}, _From, #{clock := Clock} = State) ->
     case hlc:update(Clock, Remote) of
         {ok, TS} -> {reply, TS, State};
         {timeahead, TS} -> {reply, TS, State}
     end;
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 

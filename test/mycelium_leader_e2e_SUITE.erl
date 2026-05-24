@@ -38,8 +38,10 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Case, Config) ->
     SuiteDir = ?config(priv_dir, Config),
-    TcDir = filename:join(SuiteDir,
-                          "tc_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    TcDir = filename:join(
+        SuiteDir,
+        "tc_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     ok = filelib:ensure_dir(filename:join(TcDir, "dummy")),
     DiscoveryDir = filename:join(TcDir, "discovery"),
     ok = filelib:ensure_dir(filename:join(DiscoveryDir, "dummy")),
@@ -47,7 +49,11 @@ init_per_testcase(_Case, Config) ->
     [{tc_dir, TcDir}, {discovery_dir, DiscoveryDir} | Config].
 
 end_per_testcase(_Case, _Config) ->
-    Peers = case get(?MODULE) of undefined -> []; L -> L end,
+    Peers =
+        case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end,
     [catch peer:stop(P) || P <- Peers],
     erase(?MODULE),
     ok.
@@ -65,8 +71,10 @@ three_node_single_leader(Config) ->
     wait_until(fun() -> agree_leader(Peers, job, Expected) end, 20000),
 
     {leader, _F} = status_of(Peers, Expected),
-    [ ?assertEqual({follower, undefined}, status_of(Peers, N))
-      || {_P, N} <- Peers, N =/= Expected ],
+    [
+        ?assertEqual({follower, undefined}, status_of(Peers, N))
+     || {_P, N} <- Peers, N =/= Expected
+    ],
     ok.
 
 %% The core proof: kill the leader, a survivor takes over, and the new
@@ -83,14 +91,20 @@ leader_failover_increments_fence(Config) ->
     %% Deterministic, not timing-based: every survivor must have learned
     %% the leader's term token before we kill it, so the next mint is
     %% guaranteed to advance past it.
-    wait_until(fun() ->
-        lists:all(fun({P, _N}) ->
-            case peer:call(P, mycelium_leader, high_water, [job]) of
-                HW when is_integer(HW) -> HW >= F1;
-                _                      -> false
-            end
-        end, Survivors)
-    end, 20000),
+    wait_until(
+        fun() ->
+            lists:all(
+                fun({P, _N}) ->
+                    case peer:call(P, mycelium_leader, high_water, [job]) of
+                        HW when is_integer(HW) -> HW >= F1;
+                        _ -> false
+                    end
+                end,
+                Survivors
+            )
+        end,
+        20000
+    ),
 
     {LeaderPeer, Expected} = lists:keyfind(Expected, 2, Peers),
     ok = peer:stop(LeaderPeer),
@@ -98,25 +112,34 @@ leader_failover_increments_fence(Config) ->
     %% noticed until an idle timeout, so tear down each survivor's dist
     %% link to the dead node. This drives the real nodedown -> peer_down
     %% -> remove_node path under test, just without the idle wait.
-    [ peer:call(P, erlang, disconnect_node, [Expected]) || {P, _N} <- Survivors ],
+    [peer:call(P, erlang, disconnect_node, [Expected]) || {P, _N} <- Survivors],
 
     NewExpected = lists:min([N || {_P, N} <- Survivors]),
-    wait_until(fun() ->
-        case status_of(Survivors, NewExpected) of
-            {leader, F2} when is_integer(F2) -> F2 > F1;
-            _                                -> false
-        end
-    end, 20000),
+    wait_until(
+        fun() ->
+            case status_of(Survivors, NewExpected) of
+                {leader, F2} when is_integer(F2) -> F2 > F1;
+                _ -> false
+            end
+        end,
+        20000
+    ),
 
     {leader, F2} = status_of(Survivors, NewExpected),
     ?assert(F2 > F1),
 
     NewPid = peer_whereis(Survivors, NewExpected),
-    wait_until(fun() ->
-        lists:all(fun({P, _N}) ->
-            peer:call(P, mycelium, leader, [job]) =:= {ok, NewExpected, NewPid}
-        end, Survivors)
-    end, 20000),
+    wait_until(
+        fun() ->
+            lists:all(
+                fun({P, _N}) ->
+                    peer:call(P, mycelium, leader, [job]) =:= {ok, NewExpected, NewPid}
+                end,
+                Survivors
+            )
+        end,
+        20000
+    ),
     ok.
 
 %% A higher priority wins over a lower node atom.
@@ -141,11 +164,12 @@ prio_for(_Node, _High) -> 0.
 start_candidate(Name, Priority) ->
     Self = self(),
     spawn(fun() ->
-        {Role, Fence} = case mycelium:lead(Name, #{priority => Priority}) of
-            {ok, {leader, F}} -> {leader, F};
-            {ok, follower}    -> {follower, undefined};
-            Other             -> {{error, Other}, undefined}
-        end,
+        {Role, Fence} =
+            case mycelium:lead(Name, #{priority => Priority}) of
+                {ok, {leader, F}} -> {leader, F};
+                {ok, follower} -> {follower, undefined};
+                Other -> {{error, Other}, undefined}
+            end,
         register(leader_probe, self()),
         Self ! {candidate_started, Role, Fence},
         candidate_loop(Name, Role, Fence)
@@ -189,7 +213,7 @@ candidate_status() ->
 start_cluster(Config) ->
     {Pa, NodeA, _, C1} = start_peer("a", Config, #{}),
     {Pb, NodeB, _, C2} = start_peer("b", C1, #{}),
-    {Pc, NodeC, _, _}  = start_peer("c", C2, #{}),
+    {Pc, NodeC, _, _} = start_peer("c", C2, #{}),
     Peers = [{Pa, NodeA}, {Pb, NodeB}, {Pc, NodeC}],
     form_cluster(Peers),
     Peers.
@@ -202,23 +226,26 @@ form_cluster(Peers) ->
     %% Establish the dist mesh first, with retries: the first
     %% connect_node between two fresh nodes can lose the race with the
     %% QUIC + auth handshake and return false.
-    [ wait_until(fun() -> connect_ok(Pi, Nj) end, 30000) || {Pi, Nj} <- Pairs ],
+    [wait_until(fun() -> connect_ok(Pi, Nj) end, 30000) || {Pi, Nj} <- Pairs],
     %% Form the gossip overlay: with dist already up, join takes the
     %% bridge's "already connected" fast path and populates the active
     %% view (and fires peer_up) on both ends.
-    [ _ = peer:call(Pi, mycelium, join, [Nj]) || {Pi, Nj} <- Pairs ],
+    [_ = peer:call(Pi, mycelium, join, [Nj]) || {Pi, Nj} <- Pairs],
     wait_until(fun() -> fully_connected(Peers) end, 30000).
 
 connect_ok(P, N) ->
-    peer:call(P, net_kernel, connect_node, [N], 15000) =:= true
-        andalso lists:member(N, peer:call(P, erlang, nodes, [])).
+    peer:call(P, net_kernel, connect_node, [N], 15000) =:= true andalso
+        lists:member(N, peer:call(P, erlang, nodes, [])).
 
 fully_connected(Peers) ->
     Nodes = [N || {_P, N} <- Peers],
-    lists:all(fun({P, N}) ->
-        AV = peer:call(P, mycelium, active_view, []),
-        lists:all(fun(O) -> lists:member(O, AV) end, Nodes -- [N])
-    end, Peers).
+    lists:all(
+        fun({P, N}) ->
+            AV = peer:call(P, mycelium, active_view, []),
+            lists:all(fun(O) -> lists:member(O, AV) end, Nodes -- [N])
+        end,
+        Peers
+    ).
 
 campaign(Peer, Name, Priority) ->
     {ok, _Role, _Fence} = peer:call(Peer, ?MODULE, start_candidate, [Name, Priority]),
@@ -237,9 +264,12 @@ peer_whereis(Peers, Node) ->
 agree_leader(Peers, Name, ExpectedNode) ->
     EPid = peer_whereis(Peers, ExpectedNode),
     is_pid(EPid) andalso
-        lists:all(fun({P, _N}) ->
-            peer:call(P, mycelium, leader, [Name]) =:= {ok, ExpectedNode, EPid}
-        end, Peers).
+        lists:all(
+            fun({P, _N}) ->
+                peer:call(P, mycelium, leader, [Name]) =:= {ok, ExpectedNode, EPid}
+            end,
+            Peers
+        ).
 
 %%====================================================================
 %% Peer setup (mirrors mycelium_proto_dist_SUITE:start_peer/3)
@@ -256,18 +286,32 @@ start_peer(Suffix, Config, _Opts) ->
     DiscoveryDir = ?config(discovery_dir, Config),
     BasePort = ?config(base_port, Config),
     Port = next_port(BasePort),
-    Name = list_to_atom("myc_" ++ Suffix ++ "_"
-                        ++ integer_to_list(erlang:unique_integer([positive]))),
+    Name = list_to_atom(
+        "myc_" ++ Suffix ++ "_" ++
+            integer_to_list(erlang:unique_integer([positive]))
+    ),
     BaseArgs = [
-        "-proto_dist", "mycelium",
-        "-epmd_module", "mycelium_epmd",
-        "-start_epmd", "false",
-        "-mycelium_dist_port",     integer_to_list(Port),
-        "-mycelium_dist_cert_dir", QuicDir,
-        "-setcookie", "mycelium_ct",
-        "-mycelium", "auth_key_dir",  quote(KeysDir),
-        "-mycelium", "discovery_dir", quote(DiscoveryDir),
-        "-mycelium", "active_size",   "5"
+        "-proto_dist",
+        "mycelium",
+        "-epmd_module",
+        "mycelium_epmd",
+        "-start_epmd",
+        "false",
+        "-mycelium_dist_port",
+        integer_to_list(Port),
+        "-mycelium_dist_cert_dir",
+        QuicDir,
+        "-setcookie",
+        "mycelium_ct",
+        "-mycelium",
+        "auth_key_dir",
+        quote(KeysDir),
+        "-mycelium",
+        "discovery_dir",
+        quote(DiscoveryDir),
+        "-mycelium",
+        "active_size",
+        "5"
     ],
     PaArgs = lists:flatmap(fun(P) -> ["-pa", P] end, code:get_path()),
     Args = PaArgs ++ BaseArgs,
@@ -279,7 +323,13 @@ start_peer(Suffix, Config, _Opts) ->
         args => Args
     }),
     {ok, _Started} = peer:call(Pid, application, ensure_all_started, [mycelium]),
-    put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
+    put(?MODULE, [
+        Pid
+        | case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end
+    ]),
     {Pid, Node, NodeDir, Config}.
 
 quote(S) ->
@@ -287,7 +337,11 @@ quote(S) ->
 
 next_port(BasePort) ->
     Key = {?MODULE, next_port_offset},
-    N = case get(Key) of undefined -> 0; X -> X end,
+    N =
+        case get(Key) of
+            undefined -> 0;
+            X -> X
+        end,
     put(Key, N + 1),
     BasePort + N.
 
@@ -297,10 +351,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case catch Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(200), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(200),
+                    wait_loop(Fun, Deadline)
             end
     end.

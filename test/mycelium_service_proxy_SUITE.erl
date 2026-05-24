@@ -24,14 +24,16 @@ all() ->
     [{group, fan_out}, {group, relay}].
 
 groups() ->
-    [{fan_out, [sequence], [
-        test_forward_cast_drops_over_cap,
-        test_forward_cast_releases_slot
-     ]},
-     {relay, [sequence], [
-        test_relay_refuses_ttl_zero,
-        test_relay_refuses_visited_node
-     ]}].
+    [
+        {fan_out, [sequence], [
+            test_forward_cast_drops_over_cap,
+            test_forward_cast_releases_slot
+        ]},
+        {relay, [sequence], [
+            test_relay_refuses_ttl_zero,
+            test_relay_refuses_visited_node
+        ]}
+    ].
 
 init_per_suite(Config) ->
     Config.
@@ -51,7 +53,8 @@ init_per_testcase(_TestCase, Config) ->
     %% takes the spawn path.
     ok = meck:new(mycelium_router, [passthrough]),
     ok = meck:expect(
-        mycelium_router, find_route,
+        mycelium_router,
+        find_route,
         fun(_) -> {via, 'fake_next@host'} end
     ),
     Config.
@@ -116,7 +119,8 @@ test_relay_refuses_visited_node(_Config) ->
     %% Re-stub find_route to return a NextHop that's in visited.
     Stuck = 'already_visited@host',
     meck:expect(
-        mycelium_router, find_route,
+        mycelium_router,
+        find_route,
         fun(_) -> {via, Stuck} end
     ),
     Ctx = #{ttl => 5, visited => [node(), Stuck]},

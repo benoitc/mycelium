@@ -16,8 +16,11 @@
 %%====================================================================
 
 tmp_dir() ->
-    Dir = filename:join(["/tmp", "mycelium_quic_cert_tests",
-                         integer_to_list(erlang:unique_integer([positive]))]),
+    Dir = filename:join([
+        "/tmp",
+        "mycelium_quic_cert_tests",
+        integer_to_list(erlang:unique_integer([positive]))
+    ]),
     ok = filelib:ensure_dir(filename:join(Dir, "dummy")),
     Dir.
 

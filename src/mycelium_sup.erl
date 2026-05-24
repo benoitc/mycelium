@@ -72,9 +72,13 @@ init([]) ->
 
     LeaderSync = #{
         id => mycelium_leader_replica,
-        start => {mycelium_replica, start_link,
-                  [#{name => mycelium_leader_replica,
-                     callback => mycelium_leader}]},
+        start =>
+            {mycelium_replica, start_link, [
+                #{
+                    name => mycelium_leader_replica,
+                    callback => mycelium_leader
+                }
+            ]},
         restart => permanent,
         shutdown => 5000,
         type => worker,
@@ -95,9 +99,13 @@ init([]) ->
 
     ShardReplica = #{
         id => mycelium_members_replica,
-        start => {mycelium_replica, start_link,
-                  [#{name => mycelium_members_replica,
-                     callback => mycelium_shard}]},
+        start =>
+            {mycelium_replica, start_link, [
+                #{
+                    name => mycelium_members_replica,
+                    callback => mycelium_shard
+                }
+            ]},
         restart => permanent,
         shutdown => 5000,
         type => worker,
@@ -118,9 +126,13 @@ init([]) ->
 
     ReminderReplica = #{
         id => mycelium_reminder_replica,
-        start => {mycelium_replica, start_link,
-                  [#{name => mycelium_reminder_replica,
-                     callback => mycelium_reminder}]},
+        start =>
+            {mycelium_replica, start_link, [
+                #{
+                    name => mycelium_reminder_replica,
+                    callback => mycelium_reminder
+                }
+            ]},
         restart => permanent,
         shutdown => 5000,
         type => worker,
@@ -181,8 +193,21 @@ init([]) ->
         modules => [mycelium_dist_gc]
     },
 
-    ChildSpecs = [HLC, DistKeys, HyparviewSup, PlumtreeSup, RegistrySup,
-                  Leader, LeaderSync, Shard, ShardReplica,
-                  Reminder, ReminderReplica, MapSup,
-                  Bridge, Streams, DistGc],
+    ChildSpecs = [
+        HLC,
+        DistKeys,
+        HyparviewSup,
+        PlumtreeSup,
+        RegistrySup,
+        Leader,
+        LeaderSync,
+        Shard,
+        ShardReplica,
+        Reminder,
+        ReminderReplica,
+        MapSup,
+        Bridge,
+        Streams,
+        DistGc
+    ],
     {ok, {SupFlags, ChildSpecs}}.

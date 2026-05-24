@@ -111,7 +111,8 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= test_ormap_concurrent_add_same_key;
     TestCase =:= test_ormap_add_after_remove_wins;
     TestCase =:= test_ormap_remove_after_add_wins;
-    TestCase =:= test_ormap_merge_from_multiple_nodes ->
+    TestCase =:= test_ormap_merge_from_multiple_nodes
+->
     %% OR-Map unit tests need HLC but not full app
     {ok, _} = application:ensure_all_started(mycelium),
     Config;
@@ -200,7 +201,8 @@ test_ormap_concurrent_add_same_key(_Config) ->
 
     %% First add
     Map2 = mycelium_ormap:add(key, value1, Map1),
-    timer:sleep(1), %% Ensure different HLC
+    %% Ensure different HLC
+    timer:sleep(1),
 
     %% Second add (simulating another node)
     Map3 = mycelium_ormap:add(key, value2, Map1),
@@ -267,8 +269,10 @@ test_ormap_merge_from_multiple_nodes(_Config) ->
 
     %% Merge is commutative
     MergedAlt = mycelium_ormap:merge(mycelium_ormap:merge(MapC, MapA), MapB),
-    ?assertEqual(lists:sort(mycelium_ormap:to_list(Merged2)),
-                 lists:sort(mycelium_ormap:to_list(MergedAlt))),
+    ?assertEqual(
+        lists:sort(mycelium_ormap:to_list(Merged2)),
+        lists:sort(mycelium_ormap:to_list(MergedAlt))
+    ),
     ok.
 
 test_registry_merge_preserves_latest(_Config) ->
@@ -287,8 +291,10 @@ test_registry_merge_preserves_latest(_Config) ->
         meta = #{source => remote}
     },
     RemoteDot = {node(), mycelium_hlc:now()},
-    RemoteDelta = #{{merge_test_svc, 'fake@remote'} =>
-                        {value, RemoteEntry, #{RemoteDot => true}}},
+    RemoteDelta = #{
+        {merge_test_svc, 'fake@remote'} =>
+            {value, RemoteEntry, #{RemoteDot => true}}
+    },
 
     %% Merge remote delta
     ok = mycelium_registry:merge_remote(RemoteDelta),
@@ -311,9 +317,13 @@ test_process_death_removes_entry(_Config) ->
     Pid = spawn(fun() ->
         ok = mycelium:register_service(dying_svc),
         Parent ! registered,
-        receive stop -> ok end
+        receive
+            stop -> ok
+        end
     end),
-    receive registered -> ok end,
+    receive
+        registered -> ok
+    end,
 
     %% Service should exist
     {ok, Pid} = mycelium:lookup_local(dying_svc),
@@ -338,8 +348,10 @@ test_peer_down_removes_entries(_Config) ->
         meta = #{}
     },
     RemoteDot = {FakeNode, mycelium_hlc:now()},
-    RemoteDelta = #{{peer_down_svc, FakeNode} =>
-                        {value, RemoteEntry, #{RemoteDot => true}}},
+    RemoteDelta = #{
+        {peer_down_svc, FakeNode} =>
+            {value, RemoteEntry, #{RemoteDot => true}}
+    },
     ok = mycelium_registry:merge_remote(RemoteDelta),
     timer:sleep(50),
 
@@ -402,16 +414,21 @@ test_rapid_register_unregister(_Config) ->
     %% Rapidly register and unregister the same service
     ServiceName = rapid_churn_svc,
 
-    lists:foreach(fun(I) ->
-        Holder = spawn(fun() ->
-            ok = mycelium:register_service(ServiceName),
-            receive stop -> ok end
-        end),
-        timer:sleep(5),
-        Holder ! stop,
-        timer:sleep(5),
-        ct:pal("Iteration ~p complete", [I])
-    end, lists:seq(1, 10)),
+    lists:foreach(
+        fun(I) ->
+            Holder = spawn(fun() ->
+                ok = mycelium:register_service(ServiceName),
+                receive
+                    stop -> ok
+                end
+            end),
+            timer:sleep(5),
+            Holder ! stop,
+            timer:sleep(5),
+            ct:pal("Iteration ~p complete", [I])
+        end,
+        lists:seq(1, 10)
+    ),
 
     %% Should end up with no registration
     timer:sleep(100),
@@ -423,23 +440,36 @@ test_many_concurrent_registrations(_Config) ->
     NumServices = 50,
     Parent = self(),
 
-    Pids = [spawn(fun() ->
-        Name = list_to_atom("concurrent_svc_" ++ integer_to_list(I)),
-        ok = mycelium:register_service(Name),
-        Parent ! {registered, I, self()},
-        receive stop -> ok end
-    end) || I <- lists:seq(1, NumServices)],
+    Pids = [
+        spawn(fun() ->
+            Name = list_to_atom("concurrent_svc_" ++ integer_to_list(I)),
+            ok = mycelium:register_service(Name),
+            Parent ! {registered, I, self()},
+            receive
+                stop -> ok
+            end
+        end)
+     || I <- lists:seq(1, NumServices)
+    ],
 
     %% Wait for all registrations
-    Registered = [receive {registered, I, Pid} -> {I, Pid} end || _ <- lists:seq(1, NumServices)],
+    Registered = [
+        receive
+            {registered, I, Pid} -> {I, Pid}
+        end
+     || _ <- lists:seq(1, NumServices)
+    ],
     ?assertEqual(NumServices, length(Registered)),
 
     %% Verify all services exist
     Services = mycelium:list_services(),
-    lists:foreach(fun(I) ->
-        Name = list_to_atom("concurrent_svc_" ++ integer_to_list(I)),
-        ?assert(lists:member(Name, Services))
-    end, lists:seq(1, NumServices)),
+    lists:foreach(
+        fun(I) ->
+            Name = list_to_atom("concurrent_svc_" ++ integer_to_list(I)),
+            ?assert(lists:member(Name, Services))
+        end,
+        lists:seq(1, NumServices)
+    ),
 
     %% Cleanup
     lists:foreach(fun(Pid) -> Pid ! stop end, Pids),
@@ -455,17 +485,25 @@ test_register_same_name_different_processes(_Config) ->
     Pid1 = spawn(fun() ->
         Result = mycelium:register_service(ServiceName),
         Parent ! {result, 1, Result},
-        receive stop -> ok end
+        receive
+            stop -> ok
+        end
     end),
-    receive {result, 1, R1} -> ?assertEqual(ok, R1) end,
+    receive
+        {result, 1, R1} -> ?assertEqual(ok, R1)
+    end,
 
     %% Second registration should fail
     Pid2 = spawn(fun() ->
         Result = mycelium:register_service(ServiceName),
         Parent ! {result, 2, Result},
-        receive stop -> ok end
+        receive
+            stop -> ok
+        end
     end),
-    receive {result, 2, R2} -> ?assertEqual({error, already_registered}, R2) end,
+    receive
+        {result, 2, R2} -> ?assertEqual({error, already_registered}, R2)
+    end,
 
     %% Cleanup
     Pid1 ! stop,
@@ -481,9 +519,14 @@ test_churn_does_not_corrupt_state(_Config) ->
     Workers = [spawn(fun() -> churn_worker(I, 20, Parent) end) || I <- lists:seq(1, 5)],
 
     %% Wait for all workers
-    lists:foreach(fun(_) ->
-        receive {done, _} -> ok end
-    end, Workers),
+    lists:foreach(
+        fun(_) ->
+            receive
+                {done, _} -> ok
+            end
+        end,
+        Workers
+    ),
 
     %% Registry should still be functional
     ok = mycelium:register_service(post_churn_svc),
@@ -499,19 +542,22 @@ test_churn_does_not_corrupt_state(_Config) ->
 %%====================================================================
 
 churn_worker(Id, Iterations, Parent) ->
-    lists:foreach(fun(I) ->
-        Name = list_to_atom("churn_" ++ integer_to_list(Id) ++ "_" ++ integer_to_list(I)),
-        case rand:uniform(3) of
-            1 ->
-                %% Register
-                catch mycelium:register_service(Name);
-            2 ->
-                %% Unregister
-                catch mycelium:unregister_service(Name);
-            3 ->
-                %% Lookup
-                catch mycelium:lookup(Name)
+    lists:foreach(
+        fun(I) ->
+            Name = list_to_atom("churn_" ++ integer_to_list(Id) ++ "_" ++ integer_to_list(I)),
+            case rand:uniform(3) of
+                1 ->
+                    %% Register
+                    catch mycelium:register_service(Name);
+                2 ->
+                    %% Unregister
+                    catch mycelium:unregister_service(Name);
+                3 ->
+                    %% Lookup
+                    catch mycelium:lookup(Name)
+            end,
+            timer:sleep(rand:uniform(10))
         end,
-        timer:sleep(rand:uniform(10))
-    end, lists:seq(1, Iterations)),
+        lists:seq(1, Iterations)
+    ),
     Parent ! {done, Id}.

@@ -90,9 +90,15 @@
 
 %% Replicated maps (mycelium_map)
 -export([
-    new_map/1, new_map/2, delete_map/1,
-    map_put/3, map_remove/2, map_get/2, map_keys/1, map_to_list/1,
-    subscribe_map/1, subscribe_map/2, unsubscribe_map/1, unsubscribe_map/2
+    new_map/1, new_map/2,
+    delete_map/1,
+    map_put/3,
+    map_remove/2,
+    map_get/2,
+    map_keys/1,
+    map_to_list/1,
+    subscribe_map/1, subscribe_map/2,
+    unsubscribe_map/1, unsubscribe_map/2
 ]).
 
 %% Test helpers (for integration tests)
@@ -186,7 +192,8 @@ whereis_service(Name) ->
     whereis_service(Name, #{}).
 
 %% Stability: supported.
--spec whereis_service(atom() | binary(), map()) -> {ok, pid()} | {ok, node(), pid()} | {error, not_found}.
+-spec whereis_service(atom() | binary(), map()) ->
+    {ok, pid()} | {ok, node(), pid()} | {error, not_found}.
 whereis_service(Name, Opts) ->
     Retries = maps:get(retries, Opts, ?DEFAULT_RETRIES),
     whereis_service_retry(Name, Retries, ?BASE_BACKOFF_MS).
@@ -195,8 +202,10 @@ whereis_service_retry(Name, 0, _Delay) ->
     do_whereis_service(Name);
 whereis_service_retry(Name, Retries, Delay) ->
     case do_whereis_service(Name) of
-        {ok, _} = Success -> Success;
-        {ok, _, _} = Success -> Success;
+        {ok, _} = Success ->
+            Success;
+        {ok, _, _} = Success ->
+            Success;
         {error, not_found} ->
             ActualDelay = min(Delay, ?MAX_BACKOFF_MS),
             timer:sleep(ActualDelay + rand:uniform(ActualDelay div 2)),
@@ -311,8 +320,10 @@ unsubscribe_services(Pid) ->
 %%
 %% Stability: beta. The message and return shapes may change across a
 %% 0.x minor bump.
--spec lead(term()) -> {ok, {leader, non_neg_integer()}} | {ok, follower}
-                     | {error, term()}.
+-spec lead(term()) ->
+    {ok, {leader, non_neg_integer()}}
+    | {ok, follower}
+    | {error, term()}.
 lead(Name) ->
     mycelium_leader:lead(Name).
 
@@ -320,8 +331,10 @@ lead(Name) ->
 %% `0') biases the election: higher priority wins, ties fall back to
 %% the lowest node atom.
 %% Stability: beta.
--spec lead(term(), map()) -> {ok, {leader, non_neg_integer()}} | {ok, follower}
-                           | {error, term()}.
+-spec lead(term(), map()) ->
+    {ok, {leader, non_neg_integer()}}
+    | {ok, follower}
+    | {error, term()}.
 lead(Name, Opts) ->
     mycelium_leader:lead(Name, Opts).
 
@@ -605,14 +618,16 @@ migrate_peer(Node) ->
 -spec migrate_peer(node(), #{timeout => pos_integer()}) ->
     ok | {error, term()}.
 migrate_peer(Node, Opts) when is_atom(Node), is_map(Opts) ->
-    Result = case mycelium_path_stats:connection(Node) of
-        {ok, Conn} -> quic:migrate(Conn, Opts);
-        Err        -> Err
-    end,
-    Outcome = case Result of
-        ok -> ok;
-        _  -> fail
-    end,
+    Result =
+        case mycelium_path_stats:connection(Node) of
+            {ok, Conn} -> quic:migrate(Conn, Opts);
+            Err -> Err
+        end,
+    Outcome =
+        case Result of
+            ok -> ok;
+            _ -> fail
+        end,
     mycelium_metrics:migrate_result(Node, Outcome),
     Result.
 

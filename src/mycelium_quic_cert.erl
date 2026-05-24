@@ -110,22 +110,28 @@ generate_key() ->
 create_certificate(PrivateKey) ->
     try
         %% Get node name for CN
-        NodeName = case node() of
-            nonode@nohost -> "mycelium-node";
-            Node -> atom_to_list(Node)
-        end,
+        NodeName =
+            case node() of
+                nonode@nohost -> "mycelium-node";
+                Node -> atom_to_list(Node)
+            end,
 
         %% Build subject
-        Subject = {rdnSequence, [
-            [#'AttributeTypeAndValue'{
-                type = ?'id-at-commonName',
-                value = dir_string(NodeName)
-            }],
-            [#'AttributeTypeAndValue'{
-                type = ?'id-at-organizationName',
-                value = dir_string("Mycelium")
-            }]
-        ]},
+        Subject =
+            {rdnSequence, [
+                [
+                    #'AttributeTypeAndValue'{
+                        type = ?'id-at-commonName',
+                        value = dir_string(NodeName)
+                    }
+                ],
+                [
+                    #'AttributeTypeAndValue'{
+                        type = ?'id-at-organizationName',
+                        value = dir_string("Mycelium")
+                    }
+                ]
+            ]},
 
         %% Validity period. Each bound is encoded as UTCTime for
         %% years <2050 and GeneralizedTime for 2050+ per RFC 5280.
@@ -133,15 +139,16 @@ create_certificate(PrivateKey) ->
         Now = calendar:universal_time(),
         Validity = #'Validity'{
             notBefore = validity_time(add_seconds(Now, -?BACKDATE_SECONDS)),
-            notAfter  = validity_time(add_days(Now, ?DEFAULT_DAYS))
+            notAfter = validity_time(add_days(Now, ?DEFAULT_DAYS))
         },
 
         %% Serial number: positive 127-bit integer drawn from a
         %% cryptographic PRNG. Mask off the top bit so the ASN.1
         %% INTEGER encoding stays positive without an extra byte.
         SerialBytes = crypto:strong_rand_bytes(16),
-        Serial = binary:decode_unsigned(SerialBytes)
-                 band ((1 bsl 127) - 1),
+        Serial =
+            binary:decode_unsigned(SerialBytes) band
+                ((1 bsl 127) - 1),
 
         %% Subject public key info for an EC (P-256) key. The algorithm
         %% is id-ecPublicKey with the named-curve parameters; the public
@@ -195,22 +202,28 @@ create_extensions() ->
         #'Extension'{
             extnID = ?'id-ce-basicConstraints',
             critical = true,
-            extnValue = public_key:der_encode('BasicConstraints',
-                #'BasicConstraints'{cA = false})
+            extnValue = public_key:der_encode(
+                'BasicConstraints',
+                #'BasicConstraints'{cA = false}
+            )
         },
         %% Key Usage: Digital Signature (EC key; no keyEncipherment).
         #'Extension'{
             extnID = ?'id-ce-keyUsage',
             critical = true,
-            extnValue = public_key:der_encode('KeyUsage',
-                [digitalSignature])
+            extnValue = public_key:der_encode(
+                'KeyUsage',
+                [digitalSignature]
+            )
         },
         %% Extended Key Usage: TLS Server Auth, TLS Client Auth
         #'Extension'{
             extnID = ?'id-ce-extKeyUsage',
             critical = false,
-            extnValue = public_key:der_encode('ExtKeyUsageSyntax',
-                [?'id-kp-serverAuth', ?'id-kp-clientAuth'])
+            extnValue = public_key:der_encode(
+                'ExtKeyUsageSyntax',
+                [?'id-kp-serverAuth', ?'id-kp-clientAuth']
+            )
         }
     ].
 
@@ -226,7 +239,7 @@ write_cert_files(CertFile, KeyFile, Cert, PrivateKey) ->
         KeyPem = public_key:pem_encode([{'ECPrivateKey', KeyDer, not_encrypted}]),
         ok = file:write_file(CertFile, CertPem),
         case mycelium_file:write_secure(KeyFile, KeyPem) of
-            ok                 -> ok;
+            ok -> ok;
             {error, _} = Error -> Error
         end
     catch
@@ -245,12 +258,20 @@ validity_time(DateTime) ->
 
 format_utc_time({{Year, Month, Day}, {Hour, Min, Sec}}) ->
     Y = Year rem 100,
-    lists:flatten(io_lib:format("~2..0w~2..0w~2..0w~2..0w~2..0w~2..0wZ",
-                                [Y, Month, Day, Hour, Min, Sec])).
+    lists:flatten(
+        io_lib:format(
+            "~2..0w~2..0w~2..0w~2..0w~2..0w~2..0wZ",
+            [Y, Month, Day, Hour, Min, Sec]
+        )
+    ).
 
 format_general_time({{Year, Month, Day}, {Hour, Min, Sec}}) ->
-    lists:flatten(io_lib:format("~4..0w~2..0w~2..0w~2..0w~2..0w~2..0wZ",
-                                [Year, Month, Day, Hour, Min, Sec])).
+    lists:flatten(
+        io_lib:format(
+            "~4..0w~2..0w~2..0w~2..0w~2..0w~2..0wZ",
+            [Year, Month, Day, Hour, Min, Sec]
+        )
+    ).
 
 %% @private
 %% Encode a DirectoryString attribute value in the form the local
@@ -260,13 +281,15 @@ format_general_time({{Year, Month, Day}, {Hour, Min, Sec}}) ->
 dir_string(Str) ->
     Bin = unicode:characters_to_binary(Str),
     case otp_major() >= 28 of
-        true  -> {utf8String, Bin};
+        true -> {utf8String, Bin};
         false -> public_key:der_encode('X520CommonName', {utf8String, Bin})
     end.
 
 otp_major() ->
-    try list_to_integer(erlang:system_info(otp_release))
-    catch _:_ -> 0
+    try
+        list_to_integer(erlang:system_info(otp_release))
+    catch
+        _:_ -> 0
     end.
 
 %% @private
@@ -276,7 +299,7 @@ otp_major() ->
 ec_named_curve_params() ->
     Curve = {namedCurve, ?'secp256r1'},
     case otp_major() >= 28 of
-        true  -> Curve;
+        true -> Curve;
         false -> public_key:der_encode('EcpkParameters', Curve)
     end.
 

@@ -17,8 +17,7 @@
 
 -module(mycelium_dist_auth_basic_SUITE).
 
--compile([{nowarn_deprecated_function,
-           [{ct_slave, start, 2}, {ct_slave, stop, 1}]}]).
+-compile([{nowarn_deprecated_function, [{ct_slave, start, 2}, {ct_slave, stop, 1}]}]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -214,10 +213,13 @@ start_peer_nodes(PrivDir) ->
         {"myc_auth_n3", 14445}
     ],
 
-    Paths = [P || P <- code:get_path(),
-                  P =/= ".",
-                  filename:basename(P) =/= "erlang-mycelium",
-                  P =/= ""],
+    Paths = [
+        P
+     || P <- code:get_path(),
+        P =/= ".",
+        filename:basename(P) =/= "erlang-mycelium",
+        P =/= ""
+    ],
     CodePath = string:join(Paths, " "),
 
     ErlFlags =
@@ -240,18 +242,42 @@ start_peer_nodes(PrivDir) ->
                 KeyDir = filename:join(PrivDir, atom_to_list(Short)),
                 ok = filelib:ensure_dir(filename:join(KeyDir, "dummy")),
 
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, dist_cookie, Cookie]),
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, listen_port, Port]),
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, auth_enabled, true]),
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, auth_trust_mode, tofu]),
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, auth_key_dir, KeyDir]),
-                {ok, _} = rpc:call(Node, application, ensure_all_started,
-                                   [mycelium]),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, dist_cookie, Cookie]
+                ),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, listen_port, Port]
+                ),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, auth_enabled, true]
+                ),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, auth_trust_mode, tofu]
+                ),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, auth_key_dir, KeyDir]
+                ),
+                {ok, _} = rpc:call(
+                    Node,
+                    application,
+                    ensure_all_started,
+                    [mycelium]
+                ),
                 {Node, KeyDir}
             end,
             Specs
@@ -281,5 +307,7 @@ unique_short_name(Prefix) ->
     ).
 
 ct_parent_for(Mod) ->
-    list_to_atom("ct_parent_" ++ atom_to_list(Mod) ++ "_" ++
-        integer_to_list(erlang:unique_integer([positive, monotonic]))).
+    list_to_atom(
+        "ct_parent_" ++ atom_to_list(Mod) ++ "_" ++
+            integer_to_list(erlang:unique_integer([positive, monotonic]))
+    ).

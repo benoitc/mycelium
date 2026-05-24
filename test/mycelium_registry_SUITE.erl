@@ -141,9 +141,13 @@ test_service_monitor(_Config) ->
     Pid = spawn(fun() ->
         ok = mycelium:register_service(monitored_svc),
         Parent ! registered,
-        receive stop -> ok end
+        receive
+            stop -> ok
+        end
     end),
-    receive registered -> ok end,
+    receive
+        registered -> ok
+    end,
 
     %% Service should exist
     {ok, Pid} = mycelium:lookup_local(monitored_svc),
@@ -207,11 +211,16 @@ test_overlay_lookup_returns_ok_node_pid(_Config) ->
     Fake = self(),
     Node = 'fake@host',
     ok = meck:new(mycelium_router, [passthrough]),
-    ok = meck:expect(mycelium_router, find_service,
-                     fun(_) -> {found, Node, Fake} end),
+    ok = meck:expect(
+        mycelium_router,
+        find_service,
+        fun(_) -> {found, Node, Fake} end
+    ),
     try
-        ?assertEqual({ok, Node, Fake},
-                     mycelium_registry:overlay_lookup(some_svc))
+        ?assertEqual(
+            {ok, Node, Fake},
+            mycelium_registry:overlay_lookup(some_svc)
+        )
     after
         meck:unload(mycelium_router)
     end,
@@ -226,11 +235,16 @@ test_whereis_service_via_overlay(_Config) ->
     Fake = self(),
     Node = 'fake@host',
     ok = meck:new(mycelium_router, [passthrough]),
-    ok = meck:expect(mycelium_router, find_service,
-                     fun(_) -> {found, Node, Fake} end),
+    ok = meck:expect(
+        mycelium_router,
+        find_service,
+        fun(_) -> {found, Node, Fake} end
+    ),
     try
-        ?assertEqual({ok, Node, Fake},
-                     mycelium:whereis_service(overlay_only_svc))
+        ?assertEqual(
+            {ok, Node, Fake},
+            mycelium:whereis_service(overlay_only_svc)
+        )
     after
         meck:unload(mycelium_router)
     end,
@@ -288,7 +302,9 @@ test_send(_Config) ->
             test_msg -> Parent ! {received, self()}
         end
     end),
-    receive registered -> ok end,
+    receive
+        registered -> ok
+    end,
 
     %% Send message and verify return value
     ?assertEqual(Pid, mycelium:send(via_send_name, test_msg)),
@@ -303,8 +319,10 @@ test_send(_Config) ->
 
 test_send_not_found(_Config) ->
     %% Test send/2 raises badarg if name not found
-    ?assertError({badarg, {via_nonexistent_name, test_msg}},
-                 mycelium:send(via_nonexistent_name, test_msg)),
+    ?assertError(
+        {badarg, {via_nonexistent_name, test_msg}},
+        mycelium:send(via_nonexistent_name, test_msg)
+    ),
     ok.
 
 test_via_gen_server(_Config) ->

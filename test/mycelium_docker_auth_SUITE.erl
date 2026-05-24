@@ -57,11 +57,13 @@ suite() ->
     [{timetrap, {minutes, 5}}].
 
 all() ->
-    [{group, auth_basic},
-     {group, auth_tofu},
-     {group, auth_cluster},
-     {group, whitelist_tests},
-     {group, security_tests}].
+    [
+        {group, auth_basic},
+        {group, auth_tofu},
+        {group, auth_cluster},
+        {group, whitelist_tests},
+        {group, security_tests}
+    ].
 
 groups() ->
     [
@@ -98,8 +100,10 @@ init_per_suite(Config) ->
             {skip, "Docker-only suite. Run via ./docker/scripts/run_auth_tests.sh"};
         NodesStr ->
             ct:pal("Starting Ed25519 authentication integration test suite"),
-            Nodes = [list_to_atom(string:trim(N))
-                     || N <- string:tokens(NodesStr, ",")],
+            Nodes = [
+                list_to_atom(string:trim(N))
+             || N <- string:tokens(NodesStr, ",")
+            ],
             ct:pal("Test nodes: ~p", [Nodes]),
             ok = wait_for_rpc(Nodes, 60000),
             ct:pal("All nodes reachable via RPC"),
@@ -132,31 +136,40 @@ end_per_testcase(TestCase, _Config) ->
 
 test_nodes_reachable_with_auth(Config) ->
     Nodes = ?config(test_nodes, Config),
-    lists:foreach(fun(Node) ->
-        Result = rpc:call(Node, erlang, node, []),
-        ct:pal("Node ~p reports: ~p", [Node, Result]),
-        ?assertEqual(Node, Result)
-    end, Nodes),
+    lists:foreach(
+        fun(Node) ->
+            Result = rpc:call(Node, erlang, node, []),
+            ct:pal("Node ~p reports: ~p", [Node, Result]),
+            ?assertEqual(Node, Result)
+        end,
+        Nodes
+    ),
     ok.
 
 test_auth_enabled_on_all_nodes(Config) ->
     Nodes = ?config(test_nodes, Config),
-    lists:foreach(fun(Node) ->
-        AuthEnabled = rpc:call(Node, application, get_env, [mycelium, auth_enabled, false]),
-        ct:pal("Node ~p auth_enabled: ~p", [Node, AuthEnabled]),
-        ?assertEqual(true, AuthEnabled)
-    end, Nodes),
+    lists:foreach(
+        fun(Node) ->
+            AuthEnabled = rpc:call(Node, application, get_env, [mycelium, auth_enabled, false]),
+            ct:pal("Node ~p auth_enabled: ~p", [Node, AuthEnabled]),
+            ?assertEqual(true, AuthEnabled)
+        end,
+        Nodes
+    ),
     ok.
 
 test_keys_generated_on_all_nodes(Config) ->
     Nodes = ?config(test_nodes, Config),
-    lists:foreach(fun(Node) ->
-        PubKeyResult = rpc:call(Node, mycelium_dist_auth, get_public_key, []),
-        ct:pal("Node ~p public key result: ~p", [Node, PubKeyResult]),
-        ?assertMatch({ok, _}, PubKeyResult),
-        {ok, PubKey} = PubKeyResult,
-        ?assertEqual(32, byte_size(PubKey))
-    end, Nodes),
+    lists:foreach(
+        fun(Node) ->
+            PubKeyResult = rpc:call(Node, mycelium_dist_auth, get_public_key, []),
+            ct:pal("Node ~p public key result: ~p", [Node, PubKeyResult]),
+            ?assertMatch({ok, _}, PubKeyResult),
+            {ok, PubKey} = PubKeyResult,
+            ?assertEqual(32, byte_size(PubKey))
+        end,
+        Nodes
+    ),
     ok.
 
 test_public_key_accessible(Config) ->
@@ -198,7 +211,9 @@ test_tofu_trusts_first_connection(Config) ->
     ct:pal("Node1 trusted keys count: ~p", [length(TrustedKeys)]),
 
     %% There should be at least one trusted key (from cluster formation)
-    ?assert(length(TrustedKeys) >= 0),  %% May not have stored if auth disabled during initial connect
+
+    %% May not have stored if auth disabled during initial connect
+    ?assert(length(TrustedKeys) >= 0),
 
     ok.
 
@@ -233,9 +248,12 @@ test_list_trusted_keys(Config) ->
     ?assert(is_list(TrustedKeys)),
 
     %% Each entry should be a peer_key record
-    lists:foreach(fun(Key) ->
-        ?assert(is_record(Key, peer_key))
-    end, TrustedKeys),
+    lists:foreach(
+        fun(Key) ->
+            ?assert(is_record(Key, peer_key))
+        end,
+        TrustedKeys
+    ),
 
     ok.
 
@@ -269,25 +287,34 @@ test_cluster_formation_with_auth(Config) ->
     ok.
 
 wait_active_view_nonempty(Nodes, Deadline) ->
-    case lists:all(
-           fun(Node) ->
-                   Active = rpc:call(Node, mycelium, active_view, []),
-                   is_list(Active) andalso length(Active) >= 1
-           end, Nodes)
+    case
+        lists:all(
+            fun(Node) ->
+                Active = rpc:call(Node, mycelium, active_view, []),
+                is_list(Active) andalso length(Active) >= 1
+            end,
+            Nodes
+        )
     of
         true ->
-            lists:foreach(fun(Node) ->
-                Active = rpc:call(Node, mycelium, active_view, []),
-                ct:pal("Node ~p active view: ~p", [Node, Active])
-            end, Nodes),
+            lists:foreach(
+                fun(Node) ->
+                    Active = rpc:call(Node, mycelium, active_view, []),
+                    ct:pal("Node ~p active view: ~p", [Node, Active])
+                end,
+                Nodes
+            ),
             ok;
         false ->
             case erlang:monotonic_time(millisecond) >= Deadline of
                 true ->
-                    lists:foreach(fun(Node) ->
-                        Active = rpc:call(Node, mycelium, active_view, []),
-                        ct:pal("Node ~p active view: ~p", [Node, Active])
-                    end, Nodes),
+                    lists:foreach(
+                        fun(Node) ->
+                            Active = rpc:call(Node, mycelium, active_view, []),
+                            ct:pal("Node ~p active view: ~p", [Node, Active])
+                        end,
+                        Nodes
+                    ),
                     ?assert(false);
                 false ->
                     timer:sleep(500),
@@ -373,11 +400,15 @@ test_whitelist_pattern_matching(Config) ->
 
     %% Test pattern matching on remote node
     %% First, set a test whitelist
-    ok = rpc:call(Node1, application, set_env, [mycelium, cookie_only_nodes, [
-        'cnode@localhost',
-        'monitor@*',
-        '*@trusted.local'
-    ]]),
+    ok = rpc:call(Node1, application, set_env, [
+        mycelium,
+        cookie_only_nodes,
+        [
+            'cnode@localhost',
+            'monitor@*',
+            '*@trusted.local'
+        ]
+    ]),
 
     %% Test exact match
     ExactMatch = rpc:call(Node1, mycelium_dist_auth, is_cookie_only_allowed, ['cnode@localhost']),
@@ -390,7 +421,9 @@ test_whitelist_pattern_matching(Config) ->
     ?assert(WildcardHost),
 
     %% Test wildcard name match
-    WildcardName = rpc:call(Node1, mycelium_dist_auth, is_cookie_only_allowed, ['anything@trusted.local']),
+    WildcardName = rpc:call(Node1, mycelium_dist_auth, is_cookie_only_allowed, [
+        'anything@trusted.local'
+    ]),
     ct:pal("Wildcard name 'anything@trusted.local': ~p", [WildcardName]),
     ?assert(WildcardName),
 
@@ -476,8 +509,13 @@ wait_for_mycelium_auth_loop([Node | Rest], Deadline) ->
                     wait_for_mycelium_auth_loop([Node | Rest], Deadline);
                 _ ->
                     %% Also verify auth is enabled
-                    AuthEnabled = rpc:call(Node, application, get_env,
-                                          [mycelium, auth_enabled, false], 2000),
+                    AuthEnabled = rpc:call(
+                        Node,
+                        application,
+                        get_env,
+                        [mycelium, auth_enabled, false],
+                        2000
+                    ),
                     case AuthEnabled of
                         true ->
                             wait_for_mycelium_auth_loop(Rest, Deadline);

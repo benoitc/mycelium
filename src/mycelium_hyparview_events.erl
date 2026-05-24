@@ -54,7 +54,6 @@ handle_call({subscribe, Pid}, _From, State) ->
             Subs = maps:put(Pid, Ref, State#state.subscribers),
             {reply, ok, State#state{subscribers = Subs}}
     end;
-
 handle_call({unsubscribe, Pid}, _From, State) ->
     case maps:take(Pid, State#state.subscribers) of
         {Ref, Subs} ->
@@ -63,16 +62,17 @@ handle_call({unsubscribe, Pid}, _From, State) ->
         error ->
             {reply, ok, State}
     end;
-
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({notify, Event}, State) ->
-    maps:foreach(fun(Pid, _Ref) ->
-        Pid ! {mycelium_event, Event}
-    end, State#state.subscribers),
+    maps:foreach(
+        fun(Pid, _Ref) ->
+            Pid ! {mycelium_event, Event}
+        end,
+        State#state.subscribers
+    ),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -84,7 +84,6 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
         _ ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 

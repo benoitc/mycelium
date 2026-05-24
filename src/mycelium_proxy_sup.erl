@@ -55,7 +55,8 @@ get_proxy(Name) ->
     case ets:lookup(mycelium_proxies, Name) of
         [{_, Pid}] ->
             case is_process_alive(Pid) of
-                true -> {ok, Pid};
+                true ->
+                    {ok, Pid};
                 false ->
                     ets:delete(mycelium_proxies, Name),
                     not_found

@@ -88,17 +88,17 @@ encode_fail(Reason) when is_binary(Reason) ->
 %% flood the (never-GC'd) atom table; the caller mints the atom only after
 %% the Ed25519 signature is verified. See mycelium_dist_auth_stream.
 -spec decode(binary()) ->
-    {hello, binary(), binary()} |
-    {challenge, binary(), integer()} |
-    {response, binary()} |
-    ok |
-    {fail, binary()} |
-    {error, term()}.
+    {hello, binary(), binary()}
+    | {challenge, binary(), integer()}
+    | {response, binary()}
+    | ok
+    | {fail, binary()}
+    | {error, term()}.
 decode(<<?AUTH_HELLO:8, ?PROTOCOL_VERSION:8, NodeLen:16/big, Rest/binary>>) ->
     case Rest of
         <<NodeBin:NodeLen/binary, PubKey:?PUBLIC_KEY_SIZE/binary>> ->
             case validate_node_name(NodeBin) of
-                ok             -> {hello, NodeBin, PubKey};
+                ok -> {hello, NodeBin, PubKey};
                 {error, _} = E -> E
             end;
         _ ->
@@ -106,28 +106,22 @@ decode(<<?AUTH_HELLO:8, ?PROTOCOL_VERSION:8, NodeLen:16/big, Rest/binary>>) ->
     end;
 decode(<<?AUTH_HELLO:8, Version:8, _/binary>>) ->
     {error, {unsupported_version, Version}};
-
 decode(<<?AUTH_CHALLENGE:8, Nonce:?NONCE_SIZE/binary, Timestamp:64/big>>) ->
     {challenge, Nonce, Timestamp};
 decode(<<?AUTH_CHALLENGE:8, _/binary>>) ->
     {error, invalid_challenge_payload};
-
 decode(<<?AUTH_RESPONSE:8, Signature:?SIGNATURE_SIZE/binary>>) ->
     {response, Signature};
 decode(<<?AUTH_RESPONSE:8, _/binary>>) ->
     {error, invalid_response_payload};
-
 decode(<<?AUTH_OK:8>>) ->
     ok;
-
 decode(<<?AUTH_FAIL:8, ReasonLen:16/big, Reason:ReasonLen/binary>>) ->
     {fail, Reason};
 decode(<<?AUTH_FAIL:8, _/binary>>) ->
     {error, invalid_fail_payload};
-
 decode(<<Type:8, _/binary>>) ->
     {error, {unknown_message_type, Type}};
-
 decode(_) ->
     {error, malformed_message}.
 
@@ -138,12 +132,13 @@ decode(_) ->
 %% @doc Validate a node name binary. Returns `ok' if the bytes form
 %% a well-shaped `name@host' atom by Erlang dist conventions.
 -spec validate_node_name(binary()) -> ok | {error, invalid_node_name}.
-validate_node_name(Bin)
-  when is_binary(Bin), byte_size(Bin) > 0, byte_size(Bin) =< ?MAX_NODE_NAME_LEN ->
+validate_node_name(Bin) when
+    is_binary(Bin), byte_size(Bin) > 0, byte_size(Bin) =< ?MAX_NODE_NAME_LEN
+->
     case binary:split(Bin, <<"@">>, [global]) of
         [Name, Host] when byte_size(Name) > 0, byte_size(Host) > 0 ->
             case is_valid_part(Name) andalso is_valid_part(Host) of
-                true  -> ok;
+                true -> ok;
                 false -> {error, invalid_node_name}
             end;
         _ ->
@@ -157,10 +152,11 @@ is_valid_part(<<C, _/binary>>) when C =:= $.; C =:= $- ->
 is_valid_part(Bin) ->
     is_valid_chars(Bin).
 
-is_valid_chars(<<>>) -> true;
+is_valid_chars(<<>>) ->
+    true;
 is_valid_chars(<<C, Rest/binary>>) ->
     case is_name_byte(C) of
-        true  -> is_valid_chars(Rest);
+        true -> is_valid_chars(Rest);
         false -> false
     end.
 
@@ -170,4 +166,4 @@ is_name_byte(C) when C >= $0, C =< $9 -> true;
 is_name_byte($_) -> true;
 is_name_byte($.) -> true;
 is_name_byte($-) -> true;
-is_name_byte(_)  -> false.
+is_name_byte(_) -> false.

@@ -183,10 +183,14 @@ test_service_down_event(_Config) ->
     Pid = spawn(fun() ->
         ok = mycelium:register_service(dying_svc),
         Parent ! registered,
-        receive stop -> ok end
+        receive
+            stop -> ok
+        end
     end),
 
-    receive registered -> ok end,
+    receive
+        registered -> ok
+    end,
 
     %% Consume the registered event
     receive

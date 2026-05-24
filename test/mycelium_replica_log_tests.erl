@@ -18,10 +18,12 @@
 setup() ->
     case whereis(mycelium_hlc) of
         undefined -> {ok, _} = mycelium_hlc:start_link();
-        _         -> ok
+        _ -> ok
     end,
-    Dir = filename:join("/tmp",
-        "myc_replica_log_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    Dir = filename:join(
+        "/tmp",
+        "myc_replica_log_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     Dir.
 
 cleanup(Dir) ->
@@ -57,8 +59,10 @@ append_and_recover_test_() ->
         %% Reopen: the log replays on top of the (empty) snapshot.
         {ok, H2, Map} = mycelium_replica_log:open(t, Dir),
         ok = mycelium_replica_log:close(H2),
-        [?_assertEqual({ok, 1}, mycelium_ormap:get(a, Map)),
-         ?_assertEqual({ok, 2}, mycelium_ormap:get(b, Map))]
+        [
+            ?_assertEqual({ok, 1}, mycelium_ormap:get(a, Map)),
+            ?_assertEqual({ok, 2}, mycelium_ormap:get(b, Map))
+        ]
     end).
 
 snapshot_truncates_log_test_() ->
@@ -74,9 +78,11 @@ snapshot_truncates_log_test_() ->
         %% + post-snapshot logged b).
         {ok, H2, Map} = mycelium_replica_log:open(t, Dir),
         ok = mycelium_replica_log:close(H2),
-        [?_assert(filelib:is_file(filename:join(Dir, "t.snapshot"))),
-         ?_assertEqual({ok, 1}, mycelium_ormap:get(a, Map)),
-         ?_assertEqual({ok, 2}, mycelium_ormap:get(b, Map))]
+        [
+            ?_assert(filelib:is_file(filename:join(Dir, "t.snapshot"))),
+            ?_assertEqual({ok, 1}, mycelium_ormap:get(a, Map)),
+            ?_assertEqual({ok, 2}, mycelium_ormap:get(b, Map))
+        ]
     end).
 
 idempotent_replay_test_() ->
@@ -90,8 +96,10 @@ idempotent_replay_test_() ->
         ok = mycelium_replica_log:close(H),
         {ok, H2, Map} = mycelium_replica_log:open(t, Dir),
         ok = mycelium_replica_log:close(H2),
-        [?_assertEqual({ok, 1}, mycelium_ormap:get(a, Map)),
-         ?_assertEqual([a], mycelium_ormap:keys(Map))]
+        [
+            ?_assertEqual({ok, 1}, mycelium_ormap:get(a, Map)),
+            ?_assertEqual([a], mycelium_ormap:keys(Map))
+        ]
     end).
 
 tombstone_survives_recovery_test_() ->
@@ -105,8 +113,10 @@ tombstone_survives_recovery_test_() ->
         {ok, H2, Map} = mycelium_replica_log:open(t, Dir),
         ok = mycelium_replica_log:close(H2),
         %% The remove (tombstone, newer HLC) wins on recovery.
-        [?_assertEqual(not_found, mycelium_ormap:get(a, Map)),
-         ?_assertMatch({ok, {tombstone, _}}, mycelium_ormap:get_entry(a, Map))]
+        [
+            ?_assertEqual(not_found, mycelium_ormap:get(a, Map)),
+            ?_assertMatch({ok, {tombstone, _}}, mycelium_ormap:get_entry(a, Map))
+        ]
     end).
 
 recover_after_torn_tail_test_() ->
@@ -134,8 +144,10 @@ delete_removes_files_test_() ->
         ok = mycelium_replica_log:snapshot(H, #{a => entry(1)}),
         ok = mycelium_replica_log:close(H),
         ok = mycelium_replica_log:delete(t, Dir),
-        [?_assertNot(filelib:is_file(filename:join(Dir, "t.snapshot"))),
-         ?_assertNot(filelib:is_file(filename:join(Dir, "t.log")))]
+        [
+            ?_assertNot(filelib:is_file(filename:join(Dir, "t.snapshot"))),
+            ?_assertNot(filelib:is_file(filename:join(Dir, "t.log")))
+        ]
     end).
 
 undefined_handle_is_noop_test() ->

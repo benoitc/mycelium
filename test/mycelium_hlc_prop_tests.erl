@@ -44,12 +44,13 @@ teardown(_) ->
     ok.
 
 prop_test_() ->
-    {setup, fun setup/0, fun teardown/1,
-     [{timeout, 60, ?_assert(run(prop_compare_total()))},
-      {timeout, 60, ?_assert(run(prop_compare_transitive()))},
-      {timeout, 60, ?_assert(run(prop_binary_roundtrip()))},
-      {timeout, 60, ?_assert(run(prop_now_monotonic()))},
-      {timeout, 60, ?_assert(run(prop_update_caps_remote()))}]}.
+    {setup, fun setup/0, fun teardown/1, [
+        {timeout, 60, ?_assert(run(prop_compare_total()))},
+        {timeout, 60, ?_assert(run(prop_compare_transitive()))},
+        {timeout, 60, ?_assert(run(prop_binary_roundtrip()))},
+        {timeout, 60, ?_assert(run(prop_now_monotonic()))},
+        {timeout, 60, ?_assert(run(prop_update_caps_remote()))}
+    ]}.
 
 run(Prop) ->
     proper:quickcheck(Prop, [{numtests, ?NUMTESTS}, {to_file, user}]).
@@ -59,9 +60,11 @@ run(Prop) ->
 %%====================================================================
 
 ts_gen() ->
-    ?LET({W, L},
-         {non_neg_integer(), choose(0, 16#FFFFFFFF)},
-         #timestamp{wall_time = W, logical = L}).
+    ?LET(
+        {W, L},
+        {non_neg_integer(), choose(0, 16#FFFFFFFF)},
+        #timestamp{wall_time = W, logical = L}
+    ).
 
 %%====================================================================
 %% Properties
@@ -69,48 +72,63 @@ ts_gen() ->
 
 %% Exactly one of lt, eq, gt for every pair.
 prop_compare_total() ->
-    ?FORALL({A, B}, {ts_gen(), ts_gen()},
-            begin
-                R = mycelium_hlc:compare(A, B),
-                lists:member(R, [lt, eq, gt])
-            end).
+    ?FORALL(
+        {A, B},
+        {ts_gen(), ts_gen()},
+        begin
+            R = mycelium_hlc:compare(A, B),
+            lists:member(R, [lt, eq, gt])
+        end
+    ).
 
 %% (A < B and B < C) implies A < C.
 prop_compare_transitive() ->
-    ?FORALL({A, B, C}, {ts_gen(), ts_gen(), ts_gen()},
-            begin
-                Rab = mycelium_hlc:compare(A, B),
-                Rbc = mycelium_hlc:compare(B, C),
-                Rac = mycelium_hlc:compare(A, C),
-                case {Rab, Rbc} of
-                    {lt, lt} -> Rac =:= lt;
-                    {gt, gt} -> Rac =:= gt;
-                    {eq, X}  -> Rac =:= X;
-                    {X, eq}  -> Rac =:= X;
-                    _        -> true
-                end
-            end).
+    ?FORALL(
+        {A, B, C},
+        {ts_gen(), ts_gen(), ts_gen()},
+        begin
+            Rab = mycelium_hlc:compare(A, B),
+            Rbc = mycelium_hlc:compare(B, C),
+            Rac = mycelium_hlc:compare(A, C),
+            case {Rab, Rbc} of
+                {lt, lt} -> Rac =:= lt;
+                {gt, gt} -> Rac =:= gt;
+                {eq, X} -> Rac =:= X;
+                {X, eq} -> Rac =:= X;
+                _ -> true
+            end
+        end
+    ).
 
 prop_binary_roundtrip() ->
-    ?FORALL(T, ts_gen(),
-            T =:= mycelium_hlc:from_binary(mycelium_hlc:to_binary(T))).
+    ?FORALL(
+        T,
+        ts_gen(),
+        T =:= mycelium_hlc:from_binary(mycelium_hlc:to_binary(T))
+    ).
 
 %% Two successive now() calls never go backwards.
 prop_now_monotonic() ->
-    ?FORALL(_, integer(),
-            begin
-                T1 = mycelium_hlc:now(),
-                T2 = mycelium_hlc:now(),
-                R  = mycelium_hlc:compare(T2, T1),
-                lists:member(R, [eq, gt])
-            end).
+    ?FORALL(
+        _,
+        integer(),
+        begin
+            T1 = mycelium_hlc:now(),
+            T2 = mycelium_hlc:now(),
+            R = mycelium_hlc:compare(T2, T1),
+            lists:member(R, [eq, gt])
+        end
+    ).
 
 %% After update(Remote), the returned timestamp is >= Remote.
 %% This is what makes HLC a causal merge.
 prop_update_caps_remote() ->
-    ?FORALL(Remote, ts_gen(),
-            begin
-                T = mycelium_hlc:update(Remote),
-                R = mycelium_hlc:compare(T, Remote),
-                lists:member(R, [eq, gt])
-            end).
+    ?FORALL(
+        Remote,
+        ts_gen(),
+        begin
+            T = mycelium_hlc:update(Remote),
+            R = mycelium_hlc:compare(T, Remote),
+            lists:member(R, [eq, gt])
+        end
+    ).

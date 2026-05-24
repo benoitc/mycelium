@@ -41,8 +41,8 @@
 
 -record(state, {
     sweep_period_ms :: pos_integer(),
-    min_age_ms      :: pos_integer(),
-    timer_ref       :: reference() | undefined
+    min_age_ms :: pos_integer(),
+    timer_ref :: reference() | undefined
 }).
 
 %%====================================================================
@@ -75,12 +75,22 @@ get_age_ms(Node) ->
 %%====================================================================
 
 init([]) ->
-    SweepPeriod = application:get_env(mycelium, dist_gc_sweep_period_ms,
-                                      ?DEFAULT_SWEEP_PERIOD_MS),
-    MinAge = application:get_env(mycelium, dist_gc_min_age_ms,
-                                 ?DEFAULT_MIN_AGE_MS),
-    ?AGES = ets:new(?AGES, [named_table, public, set,
-                            {read_concurrency, true}]),
+    SweepPeriod = application:get_env(
+        mycelium,
+        dist_gc_sweep_period_ms,
+        ?DEFAULT_SWEEP_PERIOD_MS
+    ),
+    MinAge = application:get_env(
+        mycelium,
+        dist_gc_min_age_ms,
+        ?DEFAULT_MIN_AGE_MS
+    ),
+    ?AGES = ets:new(?AGES, [
+        named_table,
+        public,
+        set,
+        {read_concurrency, true}
+    ]),
     %% Record any node already connected at boot (we may have started
     %% after the dist channel formed). They get the current time as
     %% their first-seen, which is conservative: they won't be reaped
@@ -89,9 +99,11 @@ init([]) ->
     [ets:insert(?AGES, {N, Now}) || N <- nodes()],
     net_kernel:monitor_nodes(true, [{node_type, visible}]),
     TRef = erlang:send_after(SweepPeriod, self(), sweep),
-    {ok, #state{sweep_period_ms = SweepPeriod,
-                min_age_ms = MinAge,
-                timer_ref = TRef}}.
+    {ok, #state{
+        sweep_period_ms = SweepPeriod,
+        min_age_ms = MinAge,
+        timer_ref = TRef
+    }}.
 
 handle_call(sweep_now, _From, State) ->
     do_sweep(State),
@@ -131,14 +143,17 @@ do_sweep(#state{min_age_ms = MinAge}) ->
 
 maybe_reap(Node, Active, MinAge, Now) ->
     case lists:member(Node, Active) of
-        true  -> ok;
+        true ->
+            ok;
         false ->
             case has_live_streams(Node) of
-                true  -> ok;
+                true ->
+                    ok;
                 false ->
                     case is_old_enough(Node, MinAge, Now) of
-                        false -> ok;
-                        true  ->
+                        false ->
+                            ok;
+                        true ->
                             _ = erlang:disconnect_node(Node),
                             ets:delete(?AGES, Node),
                             mycelium_metrics:gc_reap(Node),
@@ -150,21 +165,24 @@ maybe_reap(Node, Active, MinAge, Now) ->
 active_view_safe() ->
     %% mycelium app may not be fully started yet during early-boot
     %% sweeps; treat as empty active view rather than crash.
-    try mycelium:active_view()
-    catch _:_ -> []
+    try
+        mycelium:active_view()
+    catch
+        _:_ -> []
     end.
 
 has_live_streams(Node) ->
     try quic_dist:list_streams(Node) of
-        []                -> false;
+        [] -> false;
         L when is_list(L) -> true
-    catch _:_ ->
-        %% If we cannot ask, be conservative and keep the channel.
-        true
+    catch
+        _:_ ->
+            %% If we cannot ask, be conservative and keep the channel.
+            true
     end.
 
 is_old_enough(Node, MinAge, Now) ->
     case ets:lookup(?AGES, Node) of
         [{Node, Since}] -> (Now - Since) >= MinAge;
-        []              -> false
+        [] -> false
     end.

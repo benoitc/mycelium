@@ -124,7 +124,8 @@ test_compare_greater_than(_Config) ->
 test_binary_roundtrip(_Config) ->
     Original = mycelium_hlc:now(),
     Binary = mycelium_hlc:to_binary(Original),
-    ?assertEqual(12, byte_size(Binary)), %% 8 bytes wall + 4 bytes logical
+    %% 8 bytes wall + 4 bytes logical
+    ?assertEqual(12, byte_size(Binary)),
     Recovered = mycelium_hlc:from_binary(Binary),
     ?assertEqual(Original, Recovered),
     ok.

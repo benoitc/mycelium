@@ -46,15 +46,18 @@ init_per_testcase(Case, Config) ->
     application:set_env(mycelium, reminder_scan_ms, 200),
     %% Only the GC case wants a tiny tombstone horizon; the others keep
     %% tombstones around (e.g. the resurrection case relies on it).
-    TombTtl = case Case of
-        tombstones_gc_after_ttl -> 50;
-        _                       -> 3600000
-    end,
+    TombTtl =
+        case Case of
+            tombstones_gc_after_ttl -> 50;
+            _ -> 3600000
+        end,
     application:set_env(mycelium, reminder_tombstone_ttl_ms, TombTtl),
     %% Reminders persist by default; give each case a fresh store dir so a
     %% prior case's reminders are never reloaded.
-    Dir = filename:join(?config(priv_dir, Config),
-                        "reminders_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    Dir = filename:join(
+        ?config(priv_dir, Config),
+        "reminders_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     application:set_env(mycelium, reminder_data_dir, Dir),
     {ok, _} = application:ensure_all_started(mycelium),
     ok = mycelium:subscribe_reminders(),
@@ -88,11 +91,12 @@ remind_after_fires(_Config) ->
 
 delivers_stable_fence(_Config) ->
     ok = mycelium:remind(rk, now_ms() + 100, payload),
-    Fence = receive
-        {mycelium_reminder, rk, payload, F} -> F
-    after 2000 ->
-        ct:fail(no_fire)
-    end,
+    Fence =
+        receive
+            {mycelium_reminder, rk, payload, F} -> F
+        after 2000 ->
+            ct:fail(no_fire)
+        end,
     %% The fence is the packed version HLC: a positive, comparable id.
     ?assert(is_integer(Fence)),
     ?assert(Fence > 0).
@@ -168,13 +172,18 @@ malformed_gossip_does_not_crash(_Config) ->
     GoodDots = #{{'ghost@127.0.0.1', H} => true},
     GoodVal = {now_ms() + 100000, payload, H},
     Bad = [
-        #{ka => {value, garbage, GoodDots}},          %% payload not 3-tuple
-        #{kb => {value, GoodVal, not_a_map}},          %% dots not a map
-        #{kc => {value, GoodVal, #{}}},                %% empty dot map
-        #{kd => {value, GoodVal, #{bad_key => true}}}, %% malformed dot key
-        #{ke => {tombstone, not_a_timestamp}}          %% malformed tombstone
+        %% payload not 3-tuple
+        #{ka => {value, garbage, GoodDots}},
+        %% dots not a map
+        #{kb => {value, GoodVal, not_a_map}},
+        %% empty dot map
+        #{kc => {value, GoodVal, #{}}},
+        %% malformed dot key
+        #{kd => {value, GoodVal, #{bad_key => true}}},
+        %% malformed tombstone
+        #{ke => {tombstone, not_a_timestamp}}
     ],
-    [ mycelium_reminder:replica_merge_delta(mycelium_reminder_replica, D) || D <- Bad ],
+    [mycelium_reminder:replica_merge_delta(mycelium_reminder_replica, D) || D <- Bad],
     %% Force the casts to be processed, then assert both servers survived.
     _ = sys:get_state(mycelium_reminder),
     ?assert(is_process_alive(whereis(mycelium_reminder))),
@@ -198,9 +207,12 @@ tombstones_gc_after_ttl(_Config) ->
     end,
     %% After the fire the key is a tombstone; the sweep (ttl 50ms, scan
     %% 200ms) drops it within a couple of scans.
-    wait_until(fun() ->
-        mycelium_ormap:get_entry(gk, reminders_map()) =:= not_found
-    end, 3000),
+    wait_until(
+        fun() ->
+            mycelium_ormap:get_entry(gk, reminders_map()) =:= not_found
+        end,
+        3000
+    ),
     ok.
 
 %%====================================================================
@@ -222,10 +234,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(25), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(25),
+                    wait_loop(Fun, Deadline)
             end
     end.

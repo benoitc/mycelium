@@ -17,15 +17,17 @@
 lookup(Node, Host) ->
     Port = application:get_env(quic, dist_port, ?DEFAULT_PORT),
     case resolve_host(Host) of
-        {ok, IP} -> {ok, {IP, Port}};
+        {ok, IP} ->
+            {ok, {IP, Port}};
         {error, _} ->
             case extract_host(Node) of
                 {ok, NodeHost} ->
                     case resolve_host(NodeHost) of
                         {ok, IP} -> {ok, {IP, Port}};
-                        Err      -> Err
+                        Err -> Err
                     end;
-                Err -> Err
+                Err ->
+                    Err
             end
     end.
 
@@ -44,17 +46,18 @@ extract_host(Node) when is_binary(Node) ->
 extract_host(Node) when is_list(Node) ->
     case string:split(Node, "@") of
         [_, Host] -> {ok, Host};
-        _         -> {error, invalid_node_name}
+        _ -> {error, invalid_node_name}
     end;
 extract_host(_) ->
     {error, invalid_node_name}.
 
 resolve_host(Host) when is_list(Host) ->
     case inet:parse_address(Host) of
-        {ok, IP} -> {ok, IP};
+        {ok, IP} ->
+            {ok, IP};
         {error, _} ->
             case inet:getaddr(Host, inet) of
-                {ok, IP}   -> {ok, IP};
+                {ok, IP} -> {ok, IP};
                 {error, _} -> inet:getaddr(Host, inet6)
             end
     end;

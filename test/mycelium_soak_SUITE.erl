@@ -37,9 +37,11 @@ suite() ->
 
 all() ->
     case os:getenv("MYCELIUM_CT_SOAK") of
-        false -> {skip, "set MYCELIUM_CT_SOAK=1 to run soak suite"};
-        ""    -> {skip, "MYCELIUM_CT_SOAK is empty"};
-        _     ->
+        false ->
+            {skip, "set MYCELIUM_CT_SOAK=1 to run soak suite"};
+        "" ->
+            {skip, "MYCELIUM_CT_SOAK is empty"};
+        _ ->
             %% partition_and_heal and the cross-active-view bang case
             %% live below as future-work scaffolding; they uncover
             %% HyParView passive-promotion timing gaps that belong in
@@ -56,8 +58,10 @@ end_per_suite(_) ->
 
 init_per_testcase(_Case, Config) ->
     SuiteDir = ?config(priv_dir, Config),
-    TcDir = filename:join(SuiteDir,
-                          "tc_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    TcDir = filename:join(
+        SuiteDir,
+        "tc_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     ok = filelib:ensure_dir(filename:join(TcDir, "dummy")),
     DiscoveryDir = filename:join(TcDir, "discovery"),
     ok = filelib:ensure_dir(filename:join(DiscoveryDir, "dummy")),
@@ -67,11 +71,19 @@ init_per_testcase(_Case, Config) ->
     BasePort = ?config(base_port, Config),
     Offset = erlang:phash2(TcDir, 200) * 20,
     TcBasePort = BasePort + Offset,
-    [{tc_dir, TcDir}, {discovery_dir, DiscoveryDir},
-     {tc_base_port, TcBasePort} | Config].
+    [
+        {tc_dir, TcDir},
+        {discovery_dir, DiscoveryDir},
+        {tc_base_port, TcBasePort}
+        | Config
+    ].
 
 end_per_testcase(_Case, _Config) ->
-    Peers = case get(?MODULE) of undefined -> []; L -> L end,
+    Peers =
+        case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end,
     [catch peer:stop(P) || P <- Peers],
     erase(?MODULE),
     ok.
@@ -84,45 +96,70 @@ broadcast_burst(Config) ->
     %% active_size = NumPeers - 1 so every peer's active view holds
     %% every other. Plumtree converges through a full mesh once the
     %% gossip protocol stabilises.
-    Peers = [start_peer("c" ++ integer_to_list(I), Config,
-                        #{active_size => 4, auth_enabled => false})
-             || I <- lists:seq(1, 5)],
+    Peers = [
+        start_peer(
+            "c" ++ integer_to_list(I),
+            Config,
+            #{active_size => 4, auth_enabled => false}
+        )
+     || I <- lists:seq(1, 5)
+    ],
     [PA | _] = Peers,
     {PA1, NodeA, _, _} = PA,
     %% Pair every non-seed peer to NodeA so a connected component forms.
     lists:foreach(
-      fun({PX, _NodeX, _, _}) when PX =/= PA1 ->
-              ok = peer:call(PX, mycelium, join, [NodeA]);
-         (_) -> ok
-      end, Peers),
+        fun
+            ({PX, _NodeX, _, _}) when PX =/= PA1 ->
+                ok = peer:call(PX, mycelium, join, [NodeA]);
+            (_) ->
+                ok
+        end,
+        Peers
+    ),
     %% Wait until every peer has the seed visible in its active view.
     wait_until(
-      fun() ->
-              lists:all(
-                fun({PX, _, _, _}) when PX =/= PA1 ->
+        fun() ->
+            lists:all(
+                fun
+                    ({PX, _, _, _}) when PX =/= PA1 ->
                         AV = peer:call(PX, mycelium, active_view, []),
                         lists:member(NodeA, AV);
-                   (_) -> true
-                end, Peers)
-      end, 10000),
+                    (_) ->
+                        true
+                end,
+                Peers
+            )
+        end,
+        10000
+    ),
     NonSeedNodes = [N || {_, N, _, _} <- Peers, N =/= NodeA],
     %% Sustained gossip load: many tick broadcasts back-to-back. No
     %% leave/rejoin churn here; HyParView's passive-promotion path
     %% after a graceful leave has known timing issues that belong in
     %% a separate stabilisation effort.
     lists:foreach(
-      fun(I) ->
-              peer:call(PA1, mycelium_plumtree, broadcast,
-                        [tick, {tick, I}]),
-              timer:sleep(50)
-      end, lists:seq(1, 40)),
+        fun(I) ->
+            peer:call(
+                PA1,
+                mycelium_plumtree,
+                broadcast,
+                [tick, {tick, I}]
+            ),
+            timer:sleep(50)
+        end,
+        lists:seq(1, 40)
+    ),
     %% Settle.
     wait_until(
-      fun() ->
-              SeedAV = peer:call(PA1, mycelium, active_view, []),
-              lists:all(fun(N) -> lists:member(N, SeedAV) end,
-                        NonSeedNodes)
-      end, 15000),
+        fun() ->
+            SeedAV = peer:call(PA1, mycelium, active_view, []),
+            lists:all(
+                fun(N) -> lists:member(N, SeedAV) end,
+                NonSeedNodes
+            )
+        end,
+        15000
+    ),
     timer:sleep(1500),
     %% Every peer subscribes a collector to plumtree.
     Survivors = [P || {P, _, _, _} <- Peers],
@@ -132,26 +169,40 @@ broadcast_burst(Config) ->
     ok = peer:call(PA1, mycelium_plumtree, broadcast, [soak, Marker]),
     try
         wait_until(
-          fun() ->
-                  lists:all(
+            fun() ->
+                lists:all(
                     fun(P) ->
-                            peer:call(P, ?MODULE, was_seen, [Marker]) =:= true
-                    end, Survivors)
-          end, 15000)
-    catch _:_ ->
-        Seen = [{P, peer:call(P, ?MODULE, was_seen, [Marker])}
-                || P <- Survivors],
-        Stats = [peer:call(P, mycelium_plumtree, get_stats, []) || P <- Survivors],
-        ct:pal("seen=~p~nstats=~p", [Seen, Stats]),
-        ?assert(false, "plumtree marker did not converge")
+                        peer:call(P, ?MODULE, was_seen, [Marker]) =:= true
+                    end,
+                    Survivors
+                )
+            end,
+            15000
+        )
+    catch
+        _:_ ->
+            Seen = [
+                {P, peer:call(P, ?MODULE, was_seen, [Marker])}
+             || P <- Survivors
+            ],
+            Stats = [peer:call(P, mycelium_plumtree, get_stats, []) || P <- Survivors],
+            ct:pal("seen=~p~nstats=~p", [Seen, Stats]),
+            ?assert(false, "plumtree marker did not converge")
     end.
 
 partition_and_heal(Config) ->
-    [PA, PB, PC, PD] = [start_peer("p" ++ integer_to_list(I), Config,
-                                   #{active_size => 3})
-                        || I <- lists:seq(1, 4)],
-    {Pa, NodeA, _, _} = PA, {Pb, NodeB, _, _} = PB,
-    {Pc, NodeC, _, _} = PC, {Pd, NodeD, _, _} = PD,
+    [PA, PB, PC, PD] = [
+        start_peer(
+            "p" ++ integer_to_list(I),
+            Config,
+            #{active_size => 3}
+        )
+     || I <- lists:seq(1, 4)
+    ],
+    {Pa, NodeA, _, _} = PA,
+    {Pb, NodeB, _, _} = PB,
+    {Pc, NodeC, _, _} = PC,
+    {Pd, NodeD, _, _} = PD,
     ok = peer:call(Pb, mycelium, join, [NodeA]),
     ok = peer:call(Pc, mycelium, join, [NodeA]),
     ok = peer:call(Pd, mycelium, join, [NodeA]),
@@ -179,72 +230,105 @@ partition_and_heal(Config) ->
     ok = peer:call(Pd, mycelium, join, [NodeA]),
     %% After convergence, both sides know both services.
     wait_until(
-      fun() ->
-              All = [Pa, Pb, Pc, Pd],
-              lists:all(
+        fun() ->
+            All = [Pa, Pb, Pc, Pd],
+            lists:all(
                 fun(P) ->
-                        L = peer:call(P, mycelium, lookup, [svc_left]),
-                        R = peer:call(P, mycelium, lookup, [svc_right]),
-                        is_known(L) andalso is_known(R)
-                end, All)
-      end, 15000).
+                    L = peer:call(P, mycelium, lookup, [svc_left]),
+                    R = peer:call(P, mycelium, lookup, [svc_right]),
+                    is_known(L) andalso is_known(R)
+                end,
+                All
+            )
+        end,
+        15000
+    ).
 
-is_known({ok, _})           -> true;
-is_known({ok, _, _})        -> true;
-is_known(_)                 -> false.
+is_known({ok, _}) -> true;
+is_known({ok, _, _}) -> true;
+is_known(_) -> false.
 
 cross_active_view_bang(Config) ->
     N = 3,
-    Peers = [start_peer("x" ++ integer_to_list(I), Config,
-                        #{active_size => 1})
-             || I <- lists:seq(1, N)],
+    Peers = [
+        start_peer(
+            "x" ++ integer_to_list(I),
+            Config,
+            #{active_size => 1}
+        )
+     || I <- lists:seq(1, N)
+    ],
     [PA | _] = Peers,
     {Pa1, NodeA, _, _} = PA,
     %% Every other peer joins via seed A.
     lists:foreach(
-      fun({P, _, _, _}) when P =/= Pa1 ->
-              ok = peer:call(P, mycelium, join, [NodeA]);
-         (_) -> ok
-      end, Peers),
+        fun
+            ({P, _, _, _}) when P =/= Pa1 ->
+                ok = peer:call(P, mycelium, join, [NodeA]);
+            (_) ->
+                ok
+        end,
+        Peers
+    ),
     timer:sleep(2000),
     %% Every peer registers an echo.
     lists:foreach(
-      fun({P, _Node, _, _}) ->
-              ok = peer:call(P, ?MODULE, start_echo, [])
-      end, Peers),
+        fun({P, _Node, _, _}) ->
+            ok = peer:call(P, ?MODULE, start_echo, [])
+        end,
+        Peers
+    ),
     timer:sleep(500),
     %% Pre-warm dist channels across every pair. First-attempt connect
     %% can race the QUIC handshake, so wrap in wait_until with
     %% retries — same shape the proto_dist gc case uses.
-    Pids  = [P || {P, _, _, _} <- Peers],
+    Pids = [P || {P, _, _, _} <- Peers],
     Nodes = [Node || {_, Node, _, _} <- Peers],
-    [begin
-         ct:pal("connect ~p -> ~p", [FromNode, To]),
-         wait_until(
-           fun() ->
-                   true =:= peer:call(From, net_kernel, connect_node,
-                                      [To], 15000)
-                   andalso lists:member(
-                             To,
-                             peer:call(From, erlang, nodes, []))
-           end, 30000),
-         timer:sleep(50)
-     end
+    [
+        begin
+            ct:pal("connect ~p -> ~p", [FromNode, To]),
+            wait_until(
+                fun() ->
+                    true =:=
+                        peer:call(
+                            From,
+                            net_kernel,
+                            connect_node,
+                            [To],
+                            15000
+                        ) andalso
+                        lists:member(
+                            To,
+                            peer:call(From, erlang, nodes, [])
+                        )
+                end,
+                30000
+            ),
+            timer:sleep(50)
+        end
      || {From, FromNode} <- lists:zip(Pids, Nodes),
         To <- Nodes,
-        To =/= FromNode],
+        To =/= FromNode
+    ],
     timer:sleep(500),
     %% Cross-product: from each Pi send to every Pj's echo via raw bang.
     Results =
-        [{From, To,
-          peer:call(From, ?MODULE, echo_to, [To, payload], 15000)}
+        [
+            {From, To, peer:call(From, ?MODULE, echo_to, [To, payload], 15000)}
          || {From, FromNode} <- lists:zip(Pids, Nodes),
             To <- Nodes,
-            To =/= FromNode],
-    Bad = [{From, To, R} || {From, To, R} <- Results,
-                            not is_ok_echo(R)],
-    ?assertEqual([], Bad,
-                 io_lib:format("failed echoes: ~p", [Bad])).
+            To =/= FromNode
+        ],
+    Bad = [
+        {From, To, R}
+     || {From, To, R} <- Results,
+        not is_ok_echo(R)
+    ],
+    ?assertEqual(
+        [],
+        Bad,
+        io_lib:format("failed echoes: ~p", [Bad])
+    ).
 
 is_ok_echo({ok, payload, _Node}) -> true;
 is_ok_echo(_) -> false.
@@ -258,7 +342,11 @@ is_ok_echo(_) -> false.
 register_holder(Name) ->
     case whereis(soak_holder_key(Name)) of
         undefined ->
-            Pid = spawn(fun() -> receive _ -> ok end end),
+            Pid = spawn(fun() ->
+                receive
+                    _ -> ok
+                end
+            end),
             register(soak_holder_key(Name), Pid),
             ok = mycelium:register_service(Name);
         _ ->
@@ -277,7 +365,8 @@ start_collector() ->
             Pid = spawn(fun() -> collector_loop(#{}) end),
             register(soak_collector, Pid),
             mycelium_plumtree:subscribe(Pid);
-        _ -> ok
+        _ ->
+            ok
     end,
     ok.
 
@@ -306,7 +395,8 @@ start_echo() ->
         undefined ->
             Pid = spawn(fun loop_echo/0),
             register(echo, Pid);
-        _ -> ok
+        _ ->
+            ok
     end,
     ok.
 
@@ -346,24 +436,40 @@ start_peer(Suffix, Config, Opts) ->
     BasePort = ?config(tc_base_port, Config),
     Port = next_port(BasePort),
     ActiveSize = maps:get(active_size, Opts, 5),
-    Name = list_to_atom("soak_" ++ Suffix ++ "_"
-                        ++ integer_to_list(erlang:unique_integer([positive]))),
-    AuthArgs = case maps:get(auth_enabled, Opts, undefined) of
-        false -> ["-mycelium", "auth_enabled", "false"];
-        true  -> ["-mycelium", "auth_enabled", "true"];
-        _     -> []
-    end,
-    BaseArgs = [
-        "-proto_dist", "mycelium",
-        "-epmd_module", "mycelium_epmd",
-        "-start_epmd", "false",
-        "-mycelium_dist_port",     integer_to_list(Port),
-        "-mycelium_dist_cert_dir", QuicDir,
-        "-setcookie", "mycelium_soak",
-        "-mycelium", "auth_key_dir",  quote(KeysDir),
-        "-mycelium", "discovery_dir", quote(DiscoveryDir),
-        "-mycelium", "active_size",   integer_to_list(ActiveSize)
-    ] ++ AuthArgs,
+    Name = list_to_atom(
+        "soak_" ++ Suffix ++ "_" ++
+            integer_to_list(erlang:unique_integer([positive]))
+    ),
+    AuthArgs =
+        case maps:get(auth_enabled, Opts, undefined) of
+            false -> ["-mycelium", "auth_enabled", "false"];
+            true -> ["-mycelium", "auth_enabled", "true"];
+            _ -> []
+        end,
+    BaseArgs =
+        [
+            "-proto_dist",
+            "mycelium",
+            "-epmd_module",
+            "mycelium_epmd",
+            "-start_epmd",
+            "false",
+            "-mycelium_dist_port",
+            integer_to_list(Port),
+            "-mycelium_dist_cert_dir",
+            QuicDir,
+            "-setcookie",
+            "mycelium_soak",
+            "-mycelium",
+            "auth_key_dir",
+            quote(KeysDir),
+            "-mycelium",
+            "discovery_dir",
+            quote(DiscoveryDir),
+            "-mycelium",
+            "active_size",
+            integer_to_list(ActiveSize)
+        ] ++ AuthArgs,
     PaArgs = lists:flatmap(fun(P) -> ["-pa", P] end, code:get_path()),
     Args = PaArgs ++ BaseArgs,
     {ok, Pid, Node} = peer:start(#{
@@ -374,14 +480,24 @@ start_peer(Suffix, Config, Opts) ->
         args => Args
     }),
     {ok, _} = peer:call(Pid, application, ensure_all_started, [mycelium]),
-    put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
+    put(?MODULE, [
+        Pid
+        | case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end
+    ]),
     {Pid, Node, NodeDir, Config}.
 
 quote(S) -> "\"" ++ S ++ "\"".
 
 next_port(BasePort) ->
     Key = {?MODULE, next_port_offset},
-    N = case get(Key) of undefined -> 0; X -> X end,
+    N =
+        case get(Key) of
+            undefined -> 0;
+            X -> X
+        end,
     put(Key, N + 1),
     BasePort + N.
 
@@ -391,11 +507,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(200),
-                         wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(200),
+                    wait_loop(Fun, Deadline)
             end
     end.

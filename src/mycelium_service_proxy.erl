@@ -31,8 +31,8 @@
 -record(state, {
     name :: atom() | binary(),
     target_node :: node(),
-    in_flight = 0  :: non_neg_integer(),
-    max_in_flight  :: pos_integer(),
+    in_flight = 0 :: non_neg_integer(),
+    max_in_flight :: pos_integer(),
     watch = #{} :: mycelium_source_monitor:watch()
 }).
 
@@ -49,8 +49,12 @@ start_link(Name, TargetNode) ->
 %% hop calls recursively, carrying the TTL and visited list.
 -spec relay(atom() | binary(), node(), term()) -> term().
 relay(Name, TargetNode, Request) ->
-    relay(Name, TargetNode, Request,
-          #{ttl => ?DEFAULT_TTL, visited => [node()]}).
+    relay(
+        Name,
+        TargetNode,
+        Request,
+        #{ttl => ?DEFAULT_TTL, visited => [node()]}
+    ).
 
 -spec relay(atom() | binary(), node(), term(), map()) -> term().
 relay(_Name, _TargetNode, _Request, #{ttl := TTL}) when TTL =< 0 ->
@@ -65,12 +69,16 @@ relay(Name, TargetNode, Request, #{visited := Visited} = Ctx) ->
                     {error, relay_loop};
                 false ->
                     NextCtx = Ctx#{
-                        ttl     => maps:get(ttl, Ctx) - 1,
+                        ttl => maps:get(ttl, Ctx) - 1,
                         visited => [node() | Visited]
                     },
-                    rpc:call(NextHop, ?MODULE, relay,
-                             [Name, TargetNode, Request, NextCtx],
-                             ?CALL_TIMEOUT)
+                    rpc:call(
+                        NextHop,
+                        ?MODULE,
+                        relay,
+                        [Name, TargetNode, Request, NextCtx],
+                        ?CALL_TIMEOUT
+                    )
             end;
         no_route ->
             {error, no_route}
@@ -89,8 +97,12 @@ init([Name, TargetNode]) ->
     Max = application:get_env(
         mycelium, proxy_cast_max_in_flight, ?DEFAULT_MAX_IN_FLIGHT
     ),
-    {ok, #state{name = Name, target_node = TargetNode,
-                max_in_flight = Max, watch = Watch}}.
+    {ok, #state{
+        name = Name,
+        target_node = TargetNode,
+        max_in_flight = Max,
+        watch = Watch
+    }}.
 
 handle_call(Request, _From, #state{name = Name, target_node = Target} = State) ->
     Result = forward_call(Name, Target, Request),
@@ -106,15 +118,12 @@ handle_info(
 ) ->
     %% Service died on remote node, proxy should terminate.
     {stop, normal, State};
-
 handle_info({mycelium_service_event, _}, State) ->
     %% Other service events are not relevant to this proxy.
     {noreply, State};
-
 %% Re-subscribe if a watched source (service events) restarted.
 handle_info({mycelium_source_monitor, retry, Source}, #state{watch = W} = State) ->
     {noreply, State#state{watch = mycelium_source_monitor:retry(Source, W)}};
-
 handle_info(
     {'DOWN', Ref, process, _Pid, _Reason},
     #state{watch = W} = State
@@ -125,10 +134,9 @@ handle_info(
         ignore ->
             case State#state.in_flight of
                 N when N > 0 -> {noreply, State#state{in_flight = N - 1}};
-                _            -> {noreply, State}
+                _ -> {noreply, State}
             end
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -156,8 +164,15 @@ forward_call(Name, Target, Request) ->
             %% Route through overlay. Start the hop with a fresh
             %% TTL and visited list seeded with our own node.
             Ctx = #{ttl => ?DEFAULT_TTL, visited => [node()]},
-            case rpc:call(NextHop, ?MODULE, relay,
-                          [Name, Target, Request, Ctx], ?CALL_TIMEOUT) of
+            case
+                rpc:call(
+                    NextHop,
+                    ?MODULE,
+                    relay,
+                    [Name, Target, Request, Ctx],
+                    ?CALL_TIMEOUT
+                )
+            of
                 {badrpc, Reason} -> {error, Reason};
                 Result -> Result
             end;
@@ -178,13 +193,24 @@ forward_cast(Name, Target, Request, State) ->
 
 %% Fire-and-forget overlay cast, bounded by `max_in_flight'. Excess
 %% casts are dropped with a metric.
-spawn_overlay_cast(_NextHop, _Name, _Target, _Request,
-                   #state{in_flight = N, max_in_flight = Max} = State)
-  when N >= Max ->
+spawn_overlay_cast(
+    _NextHop,
+    _Name,
+    _Target,
+    _Request,
+    #state{in_flight = N, max_in_flight = Max} = State
+) when
+    N >= Max
+->
     mycelium_metrics:proxy_cast_dropped(),
     State;
-spawn_overlay_cast(NextHop, Name, Target, Request,
-                   #state{in_flight = N} = State) ->
+spawn_overlay_cast(
+    NextHop,
+    Name,
+    Target,
+    Request,
+    #state{in_flight = N} = State
+) ->
     {_Pid, _Ref} = spawn_monitor(fun() ->
         rpc:call(NextHop, gen_server, cast, [{Name, Target}, Request])
     end),

@@ -28,25 +28,41 @@
 -define(REPLICA, mycelium_leader_replica).
 
 %% Public API
--export([lead/1, lead/2, resign/1, leader/1, is_leader/1, fence/1,
-         candidates/1]).
+-export([
+    lead/1, lead/2,
+    resign/1,
+    leader/1,
+    is_leader/1,
+    fence/1,
+    candidates/1
+]).
 
 %% Internal API (used by the replica callbacks below)
 -export([start_link/0]).
--export([merge_remote/1, merge_fence/2, apply_full_sync/2, remove_node/1,
-         get_state/0, high_water/1]).
+-export([
+    merge_remote/1,
+    merge_fence/2,
+    apply_full_sync/2,
+    remove_node/1,
+    get_state/0,
+    high_water/1
+]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/2, replica_merge_custom/2,
-         replica_apply_full_sync/2, replica_full_sync_snapshot/1,
-         replica_remove_node/2]).
+-export([
+    replica_merge_delta/2,
+    replica_merge_custom/2,
+    replica_apply_full_sync/2,
+    replica_full_sync_snapshot/1,
+    replica_remove_node/2
+]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(SERVER, ?MODULE).
 
--type name()  :: term().
+-type name() :: term().
 -type fence() :: non_neg_integer().
 
 -export_type([name/0, fence/0]).
@@ -113,8 +129,10 @@ merge_remote(Delta) ->
 merge_fence(Name, Fence) ->
     gen_server:cast(?SERVER, {merge_fence, Name, Fence}).
 
--spec apply_full_sync(mycelium_ormap:ormap(),
-                      #{name() => mycelium_hlc:timestamp()}) -> ok.
+-spec apply_full_sync(
+    mycelium_ormap:ormap(),
+    #{name() => mycelium_hlc:timestamp()}
+) -> ok.
 apply_full_sync(Cands, Fences) ->
     gen_server:cast(?SERVER, {apply_full_sync, Cands, Fences}).
 
@@ -148,7 +166,7 @@ replica_apply_full_sync(_Inst, {Cands, Fences}) ->
 replica_full_sync_snapshot(_Inst) ->
     {Cands, Fences} = get_state(),
     case mycelium_ormap:is_empty(Cands) andalso map_size(Fences) =:= 0 of
-        true  -> empty;
+        true -> empty;
         false -> {sync, {Cands, Fences}}
     end.
 
@@ -180,57 +198,54 @@ handle_call({lead, Name, Priority}, {Pid, _Tag}, State) ->
                 true ->
                     {Fence, State2} = become_leader(Name, State1),
                     Leaders = maps:put(Name, {LNode, LPid}, State2#state.leaders),
-                    {reply, {ok, {leader, Fence}},
-                     State2#state{leaders = Leaders}};
+                    {reply, {ok, {leader, Fence}}, State2#state{leaders = Leaders}};
                 false ->
                     Leaders = maps:put(Name, {LNode, LPid}, State1#state.leaders),
                     {reply, {ok, follower}, State1#state{leaders = Leaders}}
             end
     end;
-
 handle_call({resign, Name}, _From, State) ->
     {reply, ok, drop_local(Name, demonitor, State)};
-
 handle_call({leader, Name}, _From, State) ->
     case leader_of(Name, State#state.cands) of
-        none          -> {reply, {error, no_leader}, State};
-        {Node, Pid}   -> {reply, {ok, Node, Pid}, State}
+        none -> {reply, {error, no_leader}, State};
+        {Node, Pid} -> {reply, {ok, Node, Pid}, State}
     end;
-
 handle_call({is_leader, Name}, _From, State) ->
-    Reply = case leader_of(Name, State#state.cands) of
-        {Node, _Pid} -> Node =:= node();
-        none         -> false
-    end,
+    Reply =
+        case leader_of(Name, State#state.cands) of
+            {Node, _Pid} -> Node =:= node();
+            none -> false
+        end,
     {reply, Reply, State};
-
 handle_call({fence, Name}, _From, State) ->
-    Reply = case is_self_leader(maps:get(Name, State#state.leaders, none)) of
-        true ->
-            case maps:get(Name, State#state.my_fence, undefined) of
-                undefined -> {error, not_leader};
-                F         -> {ok, mycelium_hlc:pack(F)}
-            end;
-        false ->
-            {error, not_leader}
-    end,
+    Reply =
+        case is_self_leader(maps:get(Name, State#state.leaders, none)) of
+            true ->
+                case maps:get(Name, State#state.my_fence, undefined) of
+                    undefined -> {error, not_leader};
+                    F -> {ok, mycelium_hlc:pack(F)}
+                end;
+            false ->
+                {error, not_leader}
+        end,
     {reply, Reply, State};
-
 handle_call({candidates, Name}, _From, State) ->
-    Nodes = [Node || {{N, Node}, _V} <- mycelium_ormap:to_list(State#state.cands),
-                     N =:= Name],
+    Nodes = [
+        Node
+     || {{N, Node}, _V} <- mycelium_ormap:to_list(State#state.cands),
+        N =:= Name
+    ],
     {reply, lists:usort(Nodes), State};
-
 handle_call({high_water, Name}, _From, State) ->
-    Reply = case maps:get(Name, State#state.fences, undefined) of
-        undefined -> undefined;
-        F         -> mycelium_hlc:pack(F)
-    end,
+    Reply =
+        case maps:get(Name, State#state.fences, undefined) of
+            undefined -> undefined;
+            F -> mycelium_hlc:pack(F)
+        end,
     {reply, Reply, State};
-
 handle_call(get_state, _From, State) ->
     {reply, {State#state.cands, State#state.fences}, State};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -238,23 +253,21 @@ handle_cast({merge_remote, Delta}, State) ->
     mycelium_ormap:absorb_clock(Delta),
     Cands = mycelium_ormap:merge(State#state.cands, Delta),
     {noreply, recompute_local(State#state{cands = Cands})};
-
 handle_cast({merge_fence, Name, F}, State) ->
     mycelium_hlc:update(F),
     Fences = raise_fence(State#state.fences, Name, F),
     {noreply, State#state{fences = Fences}};
-
 handle_cast({apply_full_sync, RemoteCands, RemoteFences}, State) ->
     mycelium_ormap:absorb_clock(RemoteCands),
     Cands = mycelium_ormap:merge(State#state.cands, RemoteCands),
     Fences = merge_fences(State#state.fences, RemoteFences),
     {noreply, recompute_local(State#state{cands = Cands, fences = Fences})};
-
 handle_cast({remove_node, Node}, State) ->
-    Cands = maps:filter(fun({_Name, N}, _Entry) -> N =/= Node end,
-                        State#state.cands),
+    Cands = maps:filter(
+        fun({_Name, N}, _Entry) -> N =/= Node end,
+        State#state.cands
+    ),
     {noreply, recompute_local(State#state{cands = Cands})};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -266,7 +279,6 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, State) ->
         error ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -284,16 +296,16 @@ drop_local(Name, Demon, State) ->
     case maps:take(Name, State#state.local) of
         {{_Pid, Ref, _Prio}, Local} ->
             case Demon of
-                demonitor    -> demonitor(Ref, [flush]);
+                demonitor -> demonitor(Ref, [flush]);
                 no_demonitor -> ok
             end,
             Key = {Name, node()},
             Cands = mycelium_ormap:remove(Key, State#state.cands),
             mycelium_replica:broadcast_update(?REPLICA, {remove, Key}),
             State#state{
-                local    = Local,
-                cands    = Cands,
-                leaders  = maps:remove(Name, State#state.leaders),
+                local = Local,
+                cands = Cands,
+                leaders = maps:remove(Name, State#state.leaders),
                 my_fence = maps:remove(Name, State#state.my_fence)
             };
         error ->
@@ -308,7 +320,7 @@ become_leader(Name, State) ->
     HighWater = maps:get(Name, State#state.fences, undefined),
     case HighWater of
         undefined -> ok;
-        _         -> mycelium_hlc:update(HighWater)
+        _ -> mycelium_hlc:update(HighWater)
     end,
     F = mycelium_hlc:now(),
     Fences = raise_fence(State#state.fences, Name, F),
@@ -324,13 +336,13 @@ recompute_name(Name, State) ->
     New = leader_of(Name, State#state.cands),
     Old = maps:get(Name, State#state.leaders, none),
     case New =:= Old of
-        true  -> State;
+        true -> State;
         false -> apply_transition(Name, Old, New, State)
     end.
 
 apply_transition(Name, Old, New, State) ->
     WasSelf = is_self_leader(Old),
-    IsSelf  = is_self_leader(New),
+    IsSelf = is_self_leader(New),
     State1 =
         if
             IsSelf andalso not WasSelf ->
@@ -339,30 +351,34 @@ apply_transition(Name, Old, New, State) ->
                 S;
             WasSelf andalso not IsSelf ->
                 S = State#state{
-                    my_fence = maps:remove(Name, State#state.my_fence)},
+                    my_fence = maps:remove(Name, State#state.my_fence)
+                },
                 notify_local(Name, revoked, S),
                 S;
             true ->
                 State
         end,
-    Leaders = case New of
-        none -> maps:remove(Name, State1#state.leaders);
-        _    -> maps:put(Name, New, State1#state.leaders)
-    end,
+    Leaders =
+        case New of
+            none -> maps:remove(Name, State1#state.leaders);
+            _ -> maps:put(Name, New, State1#state.leaders)
+        end,
     State1#state{leaders = Leaders}.
 
 notify_local(Name, Msg, State) ->
     case maps:get(Name, State#state.local, undefined) of
         {Pid, _Ref, _Prio} -> Pid ! {mycelium_leader, Name, Msg};
-        undefined          -> ok
+        undefined -> ok
     end.
 
 %% Winner among live candidates for Name: highest priority, ties to the
 %% lowest node atom. `none' when there are no candidates.
 leader_of(Name, ORMap) ->
-    Cands = [{Node, Pid, Prio}
-             || {{N, Node}, {Pid, Prio}} <- mycelium_ormap:to_list(ORMap),
-                N =:= Name],
+    Cands = [
+        {Node, Pid, Prio}
+     || {{N, Node}, {Pid, Prio}} <- mycelium_ormap:to_list(ORMap),
+        N =:= Name
+    ],
     case Cands of
         [] ->
             none;
@@ -375,7 +391,7 @@ cmp_cand({Na, _Pa, Pria}, {Nb, _Pb, Prib}) ->
     {-Pria, Na} =< {-Prib, Nb}.
 
 is_self_leader({Node, _Pid}) -> Node =:= node();
-is_self_leader(none)         -> false.
+is_self_leader(none) -> false.
 
 %% Keep the HLC-greater token for a name.
 raise_fence(Fences, Name, F) ->
@@ -385,7 +401,7 @@ raise_fence(Fences, Name, F) ->
         Old ->
             case mycelium_hlc:compare(F, Old) of
                 gt -> maps:put(Name, F, Fences);
-                _  -> Fences
+                _ -> Fences
             end
     end.
 
@@ -395,5 +411,5 @@ merge_fences(F1, F2) ->
 find_name_by_ref(Ref, Local) ->
     case [N || {N, {_P, R, _Pr}} <- maps:to_list(Local), R =:= Ref] of
         [Name | _] -> {ok, Name};
-        []         -> error
+        [] -> error
     end.

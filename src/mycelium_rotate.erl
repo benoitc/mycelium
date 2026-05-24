@@ -34,12 +34,14 @@
 %% Public API
 %%====================================================================
 
--type result() :: {ok, #{
-    cert_file       => file:filename(),
-    key_file        => file:filename(),
-    backup_dir      => file:filename() | undefined,
-    restart_required => boolean()
-}} | {error, term()}.
+-type result() ::
+    {ok, #{
+        cert_file => file:filename(),
+        key_file => file:filename(),
+        backup_dir => file:filename() | undefined,
+        restart_required => boolean()
+    }}
+    | {error, term()}.
 
 -spec rotate_cert() -> result().
 rotate_cert() ->
@@ -47,23 +49,33 @@ rotate_cert() ->
 
 -spec rotate_cert(map()) -> result().
 rotate_cert(Opts) ->
-    Dir = maps:get(cert_dir, Opts,
-                   application:get_env(mycelium, quic_cert_dir,
-                                       "data/quic")),
+    Dir = maps:get(
+        cert_dir,
+        Opts,
+        application:get_env(
+            mycelium,
+            quic_cert_dir,
+            "data/quic"
+        )
+    ),
     CertFile = filename:join(Dir, "node.crt"),
-    KeyFile  = filename:join(Dir, "node.key"),
+    KeyFile = filename:join(Dir, "node.key"),
     case backup_pair(Dir, [CertFile, KeyFile]) of
         {ok, BackupDir} ->
             case mycelium_quic_cert:generate_cert(Dir) of
                 ok ->
-                    logger:warning("mycelium_rotate: cert rotated in ~s; "
-                                   "node restart required for the listener "
-                                   "to load the new credentials. Backup at ~s",
-                                   [Dir, BackupDir]),
-                    {ok, #{cert_file => CertFile,
-                           key_file => KeyFile,
-                           backup_dir => BackupDir,
-                           restart_required => true}};
+                    logger:warning(
+                        "mycelium_rotate: cert rotated in ~s; "
+                        "node restart required for the listener "
+                        "to load the new credentials. Backup at ~s",
+                        [Dir, BackupDir]
+                    ),
+                    {ok, #{
+                        cert_file => CertFile,
+                        key_file => KeyFile,
+                        backup_dir => BackupDir,
+                        restart_required => true
+                    }};
                 Error ->
                     restore_backup(BackupDir, [CertFile, KeyFile]),
                     Error
@@ -78,9 +90,12 @@ rotate_identity() ->
 
 -spec rotate_identity(map()) -> result().
 rotate_identity(Opts) ->
-    Dir = maps:get(key_dir, Opts,
-                   application:get_env(mycelium, auth_key_dir, "data/keys")),
-    PubFile  = filename:join(Dir, "node.pub"),
+    Dir = maps:get(
+        key_dir,
+        Opts,
+        application:get_env(mycelium, auth_key_dir, "data/keys")
+    ),
+    PubFile = filename:join(Dir, "node.pub"),
     PrivFile = filename:join(Dir, "node.key"),
     case backup_pair(Dir, [PubFile, PrivFile]) of
         {ok, BackupDir} ->
@@ -88,14 +103,18 @@ rotate_identity(Opts) ->
             case mycelium_dist_auth:save_keypair(Dir, PubKey, PrivKey) of
                 ok ->
                     Fp = mycelium_dist_keys:fingerprint(PubKey),
-                    logger:warning("mycelium_rotate: identity rotated in ~s; "
-                                   "new fingerprint ~s. Peers running in "
-                                   "strict-trust mode must re-pin. Backup at ~s",
-                                   [Dir, hex(Fp), BackupDir]),
-                    {ok, #{cert_file => PubFile,
-                           key_file => PrivFile,
-                           backup_dir => BackupDir,
-                           restart_required => false}};
+                    logger:warning(
+                        "mycelium_rotate: identity rotated in ~s; "
+                        "new fingerprint ~s. Peers running in "
+                        "strict-trust mode must re-pin. Backup at ~s",
+                        [Dir, hex(Fp), BackupDir]
+                    ),
+                    {ok, #{
+                        cert_file => PubFile,
+                        key_file => PrivFile,
+                        backup_dir => BackupDir,
+                        restart_required => false
+                    }};
                 Error ->
                     restore_backup(BackupDir, [PubFile, PrivFile]),
                     Error
@@ -147,20 +166,28 @@ restore_backup(undefined, _Files) ->
     ok;
 restore_backup(BackupDir, Files) ->
     lists:foreach(
-      fun(F) ->
-          Source = filename:join(BackupDir, filename:basename(F)),
-          case filelib:is_regular(Source) of
-              true  -> _ = file:copy(Source, F), ok;
-              false -> ok
-          end
-      end, Files),
+        fun(F) ->
+            Source = filename:join(BackupDir, filename:basename(F)),
+            case filelib:is_regular(Source) of
+                true ->
+                    _ = file:copy(Source, F),
+                    ok;
+                false ->
+                    ok
+            end
+        end,
+        Files
+    ),
     ok.
 
 timestamp_dir() ->
     {{Y, M, D}, {H, Mi, S}} = calendar:universal_time(),
-    lists:flatten(io_lib:format(
-        "~4..0w~2..0w~2..0wT~2..0w~2..0w~2..0wZ",
-        [Y, M, D, H, Mi, S])).
+    lists:flatten(
+        io_lib:format(
+            "~4..0w~2..0w~2..0wT~2..0w~2..0w~2..0wZ",
+            [Y, M, D, H, Mi, S]
+        )
+    ).
 
 hex(Bin) when is_binary(Bin) ->
     [io_lib:format("~2.16.0b", [B]) || <<B>> <= Bin].

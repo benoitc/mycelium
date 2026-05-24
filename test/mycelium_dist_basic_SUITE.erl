@@ -18,8 +18,7 @@
 %% but `peer:start_link' fails the boot handshake on this OTP build
 %% (both stdio and dist connection modes). ct_slave still works and
 %% is supported through OTP 30.
--compile([{nowarn_deprecated_function,
-           [{ct_slave, start, 2}, {ct_slave, stop, 1}]}]).
+-compile([{nowarn_deprecated_function, [{ct_slave, start, 2}, {ct_slave, stop, 1}]}]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -174,10 +173,18 @@ register_service_test(Config) ->
     %% caller and removes the entry when it exits, so we cannot use the
     %% short-lived RPC proxy pid.
     Holder = rpc:call(Node1, erlang, spawn, [
-        fun() -> receive stop -> ok end end
+        fun() ->
+            receive
+                stop -> ok
+            end
+        end
     ]),
-    ok = rpc:call(Node1, mycelium_registry, register_service,
-                  [my_service, Holder, #{kind => test}]),
+    ok = rpc:call(
+        Node1,
+        mycelium_registry,
+        register_service,
+        [my_service, Holder, #{kind => test}]
+    ),
     Services = rpc:call(Node1, mycelium, list_services, []),
     ?assert(is_list(Services)),
     ?assert(lists:member(my_service, Services)),
@@ -289,13 +296,23 @@ whereis_service_remote_test(Config) ->
     Node2 = ?config(node2, Config),
 
     ServiceName = remote_svc_test,
-    {ok, HolderPid} = rpc:call(Node2, mycelium, start_service_holder,
-                               [ServiceName]),
+    {ok, HolderPid} = rpc:call(
+        Node2,
+        mycelium,
+        start_service_holder,
+        [ServiceName]
+    ),
     try
         wait_until(
             fun() ->
-                case rpc:call(Node1, mycelium, whereis_service,
-                              [ServiceName]) of
+                case
+                    rpc:call(
+                        Node1,
+                        mycelium,
+                        whereis_service,
+                        [ServiceName]
+                    )
+                of
                     {ok, _} -> true;
                     {ok, _, _} -> true;
                     {found, _, _} -> true;
@@ -315,12 +332,20 @@ proxy_creation_test(Config) ->
     Node2 = ?config(node2, Config),
 
     ServiceName = proxy_test_svc,
-    {ok, HolderPid} = rpc:call(Node2, mycelium, start_service_holder,
-                               [ServiceName]),
+    {ok, HolderPid} = rpc:call(
+        Node2,
+        mycelium,
+        start_service_holder,
+        [ServiceName]
+    ),
     try
         timer:sleep(500),
-        {ok, ProxyPid} = rpc:call(Node1, mycelium_registry, ensure_proxy,
-                                  [ServiceName, Node2]),
+        {ok, ProxyPid} = rpc:call(
+            Node1,
+            mycelium_registry,
+            ensure_proxy,
+            [ServiceName, Node2]
+        ),
         ?assert(is_pid(ProxyPid)),
         ?assertEqual(Node1, node(ProxyPid))
     after
@@ -355,10 +380,13 @@ start_peer_nodes() ->
     Node1Short = unique_short_name("myc_ct_n1"),
     Node2Short = unique_short_name("myc_ct_n2"),
 
-    Paths = [P || P <- code:get_path(),
-                  P =/= ".",
-                  filename:basename(P) =/= "erlang-mycelium",
-                  P =/= ""],
+    Paths = [
+        P
+     || P <- code:get_path(),
+        P =/= ".",
+        filename:basename(P) =/= "erlang-mycelium",
+        P =/= ""
+    ],
     CodePath = string:join(Paths, " "),
 
     %% NOTE: do NOT pass -setcookie here. ct_slave's get_cmd already
@@ -392,14 +420,30 @@ start_peer_nodes() ->
                 %% init_dist_cookie/0 otherwise resets it to `mycelium'
                 %% and breaks the established CT->slave connection on
                 %% any later reconnect.
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, dist_cookie, Cookie]),
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, listen_port, Port]),
-                ok = rpc:call(Node, application, set_env,
-                              [mycelium, auth_enabled, false]),
-                {ok, _} = rpc:call(Node, application, ensure_all_started,
-                                   [mycelium])
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, dist_cookie, Cookie]
+                ),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, listen_port, Port]
+                ),
+                ok = rpc:call(
+                    Node,
+                    application,
+                    set_env,
+                    [mycelium, auth_enabled, false]
+                ),
+                {ok, _} = rpc:call(
+                    Node,
+                    application,
+                    ensure_all_started,
+                    [mycelium]
+                )
             end,
             [{Node1, Port1}, {Node2, Port2}]
         ),
@@ -423,12 +467,14 @@ start_peer_nodes() ->
 unique_short_name(Prefix) ->
     list_to_atom(
         Prefix ++ "_" ++ os:getpid() ++ "_" ++
-        integer_to_list(erlang:system_time(microsecond))
+            integer_to_list(erlang:system_time(microsecond))
     ).
 
 ct_parent_for(Mod) ->
-    list_to_atom("ct_parent_" ++ atom_to_list(Mod) ++ "_" ++
-        integer_to_list(erlang:unique_integer([positive, monotonic]))).
+    list_to_atom(
+        "ct_parent_" ++ atom_to_list(Mod) ++ "_" ++
+            integer_to_list(erlang:unique_integer([positive, monotonic]))
+    ).
 
 wait_until(Pred, Timeout) ->
     Deadline = erlang:monotonic_time(millisecond) + Timeout,

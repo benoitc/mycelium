@@ -27,11 +27,11 @@
 
 setup() ->
     meck:new(quic_dist, [non_strict]),
-    meck:expect(quic_dist, accept_streams,      fun(_)   -> ok end),
-    meck:expect(quic_dist, controlling_process, fun(_,_) -> ok end),
-    meck:expect(quic_dist, reset_stream,        fun(_,_) -> ok end),
-    meck:expect(quic_dist, send,                fun(_,_) -> ok end),
-    meck:expect(quic_dist, close_stream,        fun(_)   -> ok end),
+    meck:expect(quic_dist, accept_streams, fun(_) -> ok end),
+    meck:expect(quic_dist, controlling_process, fun(_, _) -> ok end),
+    meck:expect(quic_dist, reset_stream, fun(_, _) -> ok end),
+    meck:expect(quic_dist, send, fun(_, _) -> ok end),
+    meck:expect(quic_dist, close_stream, fun(_) -> ok end),
     {ok, _} = mycelium_streams:start_link(),
     ok.
 
@@ -41,8 +41,9 @@ teardown(_) ->
     ok.
 
 prop_test_() ->
-    {setup, fun setup/0, fun teardown/1,
-     [{timeout, 60, ?_assert(run(prop_dispatch_fragments_preserve_payload()))}]}.
+    {setup, fun setup/0, fun teardown/1, [
+        {timeout, 60, ?_assert(run(prop_dispatch_fragments_preserve_payload()))}
+    ]}.
 
 run(Prop) ->
     proper:quickcheck(Prop, [{numtests, ?NUMTESTS}, {to_file, user}]).
@@ -53,44 +54,66 @@ run(Prop) ->
 
 %% Tag is 1..32 random non-zero bytes.
 tag() ->
-    ?LET(N, choose(1, 32),
-         ?LET(Bs, vector(N, choose(1, 255)),
-              list_to_binary(Bs))).
+    ?LET(
+        N,
+        choose(1, 32),
+        ?LET(
+            Bs,
+            vector(N, choose(1, 255)),
+            list_to_binary(Bs)
+        )
+    ).
 
 payload() ->
-    ?LET(N, choose(0, 200),
-         ?LET(Bs, vector(N, choose(0, 255)),
-              list_to_binary(Bs))).
+    ?LET(
+        N,
+        choose(0, 200),
+        ?LET(
+            Bs,
+            vector(N, choose(0, 255)),
+            list_to_binary(Bs)
+        )
+    ).
 
 %% Split a binary into 1..6 chunks at random offsets. Returns the
 %% list of chunks; concatenated they reproduce the input exactly.
 chunking(<<>>) ->
     [<<>>];
 chunking(Bin) ->
-    ?LET(NChunks, choose(1, 6),
-         split_n(Bin, NChunks)).
+    ?LET(
+        NChunks,
+        choose(1, 6),
+        split_n(Bin, NChunks)
+    ).
 
 split_n(Bin, 1) ->
     [Bin];
 split_n(Bin, N) ->
     Size = byte_size(Bin),
-    ?LET(Cut, choose(1, max(1, Size)),
-         begin
-             Cut1 = min(Cut, Size),
-             <<H:Cut1/binary, T/binary>> = Bin,
-             [H | split_n(T, N - 1)]
-         end).
+    ?LET(
+        Cut,
+        choose(1, max(1, Size)),
+        begin
+            Cut1 = min(Cut, Size),
+            <<H:Cut1/binary, T/binary>> = Bin,
+            [H | split_n(T, N - 1)]
+        end
+    ).
 
 %%====================================================================
 %% Property
 %%====================================================================
 
 prop_dispatch_fragments_preserve_payload() ->
-    ?FORALL({Tag, Payload},
-            {tag(), payload()},
-            ?FORALL(Chunks,
-                    chunking(<<(byte_size(Tag)):8, Tag/binary, Payload/binary>>),
-                    check_dispatch(Tag, Payload, Chunks))).
+    ?FORALL(
+        {Tag, Payload},
+        {tag(), payload()},
+        ?FORALL(
+            Chunks,
+            chunking(<<(byte_size(Tag)):8, Tag/binary, Payload/binary>>),
+            check_dispatch(Tag, Payload, Chunks)
+        )
+    ).
 
 %%====================================================================
 %% Driver
@@ -103,8 +126,7 @@ check_dispatch(Tag, Payload, Chunks) ->
     drain(),
     ok = mycelium_streams:unregister_acceptor(Tag),
     ok = mycelium_streams:register_acceptor(Tag, Self),
-    SR = {quic_dist_stream, 'peer@h',
-          erlang:unique_integer([positive, monotonic])},
+    SR = {quic_dist_stream, 'peer@h', erlang:unique_integer([positive, monotonic])},
     Demuxer = whereis(mycelium_streams),
     Total = length(Chunks),
     %% In production the dist controller is the single serial router for a
@@ -119,11 +141,14 @@ check_dispatch(Tag, Payload, Chunks) ->
     %% arrived, then mis-read them as a new preamble.
     sys:suspend(Demuxer),
     lists:foldl(
-      fun(Chunk, I) ->
-              Fin = (I =:= Total),
-              Demuxer ! {quic_dist_stream, SR, {data, Chunk, Fin}},
-              I + 1
-      end, 1, Chunks),
+        fun(Chunk, I) ->
+            Fin = (I =:= Total),
+            Demuxer ! {quic_dist_stream, SR, {data, Chunk, Fin}},
+            I + 1
+        end,
+        1,
+        Chunks
+    ),
     sys:resume(Demuxer),
     Opened = wait_opened(SR),
     Got = collect_data(SR, <<>>),
@@ -134,7 +159,7 @@ wait_opened(SR) ->
     receive
         {mstream, SR, opened, _} -> true
     after 1000 ->
-              false
+        false
     end.
 
 collect_data(SR, Acc) ->
@@ -144,11 +169,12 @@ collect_data(SR, Acc) ->
         {quic_dist_stream, SR, {data, Bin, false}} ->
             collect_data(SR, <<Acc/binary, Bin/binary>>)
     after 1000 ->
-              %% Whatever we have so far; the property will compare.
-              Acc
+        %% Whatever we have so far; the property will compare.
+        Acc
     end.
 
 drain() ->
-    receive _ -> drain()
+    receive
+        _ -> drain()
     after 0 -> ok
     end.

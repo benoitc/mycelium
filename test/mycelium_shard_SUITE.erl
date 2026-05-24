@@ -57,9 +57,13 @@ end_per_testcase(_Case, _Config) ->
 owner_is_order_independent(_Config) ->
     Members = [a@h, b@h, c@h, d@h, e@h],
     Shuffled = [e@h, c@h, a@h, d@h, b@h],
-    [ ?assertEqual(mycelium_shard:owner(P, Members),
-                   mycelium_shard:owner(P, Shuffled))
-      || P <- lists:seq(0, ?RING - 1) ],
+    [
+        ?assertEqual(
+            mycelium_shard:owner(P, Members),
+            mycelium_shard:owner(P, Shuffled)
+        )
+     || P <- lists:seq(0, ?RING - 1)
+    ],
     ok.
 
 %% Adding a node only steals partitions that now hash highest to it;
@@ -73,11 +77,12 @@ adding_a_node_moves_only_its_partitions(_Config) ->
             O0 = mycelium_shard:owner(P, M0),
             O1 = mycelium_shard:owner(P, M1),
             case O1 =:= O0 of
-                true  -> ok;
+                true -> ok;
                 false -> ?assertEqual(New, O1)
             end
         end,
-        lists:seq(0, ?RING - 1)),
+        lists:seq(0, ?RING - 1)
+    ),
     ok.
 
 %% Removing a node only moves the partitions it owned; every other
@@ -91,11 +96,12 @@ removing_a_node_moves_only_its_partitions(_Config) ->
             O0 = mycelium_shard:owner(P, M0),
             O1 = mycelium_shard:owner(P, M1),
             case O0 =:= Gone of
-                true  -> ?assert(lists:member(O1, M1));
+                true -> ?assert(lists:member(O1, M1));
                 false -> ?assertEqual(O0, O1)
             end
         end,
-        lists:seq(0, ?RING - 1)),
+        lists:seq(0, ?RING - 1)
+    ),
     ok.
 
 %%====================================================================
@@ -114,9 +120,13 @@ place_matches_pure_owner(_Config) ->
     wait_member('aaa_fake@127.0.0.1'),
     wait_member('zzz_fake@127.0.0.1'),
     Members = mycelium:members(),
-    [ ?assertEqual(mycelium_shard:owner(mycelium:partition(K), Members),
-                   mycelium:place(K))
-      || K <- [k1, k2, "k3", {k, 4}, 5] ],
+    [
+        ?assertEqual(
+            mycelium_shard:owner(mycelium:partition(K), Members),
+            mycelium:place(K)
+        )
+     || K <- [k1, k2, "k3", {k, 4}, 5]
+    ],
     ok.
 
 lease_expiry_drops_member(_Config) ->
@@ -135,8 +145,8 @@ ownership_events_on_membership_change(_Config) ->
     %% Add enough fake nodes that self surely loses some partitions.
     Fakes = ['f1@127.0.0.1', 'f2@127.0.0.1', 'f3@127.0.0.1', 'f4@127.0.0.1'],
     Before = owned_partitions([Self]),
-    [ inject_member(F) || F <- Fakes ],
-    [ wait_member(F) || F <- Fakes ],
+    [inject_member(F) || F <- Fakes],
+    [wait_member(F) || F <- Fakes],
     After = owned_partitions(mycelium:members()),
     Lost = Before -- After,
     %% We should have been notified of releasing exactly the lost ones
@@ -160,8 +170,11 @@ inject_member(Node) ->
 
 owned_partitions(Members) ->
     Self = node(),
-    [P || P <- lists:seq(0, ring_size() - 1),
-          mycelium_shard:owner(P, Members) =:= Self].
+    [
+        P
+     || P <- lists:seq(0, ring_size() - 1),
+        mycelium_shard:owner(P, Members) =:= Self
+    ].
 
 ring_size() ->
     application:get_env(mycelium, ring_size, 64).
@@ -186,10 +199,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(25), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(25),
+                    wait_loop(Fun, Deadline)
             end
     end.

@@ -38,9 +38,13 @@
 
 -export_type([handle/0]).
 
--type handle() :: undefined | #{name := atom(),
-                                log := atom(),
-                                snapshot := file:filename_all()}.
+-type handle() ::
+    undefined
+    | #{
+        name := atom(),
+        log := atom(),
+        snapshot := file:filename_all()
+    }.
 
 %%====================================================================
 %% API
@@ -58,8 +62,11 @@ open(Name, Dir) ->
             case open_log(Name, log_path(Dir, Name)) of
                 {ok, Log} ->
                     Map = replay(Log, Base),
-                    Handle = #{name => Name, log => Log,
-                               snapshot => snapshot_path(Dir, Name)},
+                    Handle = #{
+                        name => Name,
+                        log => Log,
+                        snapshot => snapshot_path(Dir, Name)
+                    },
                     {ok, Handle, Map};
                 {error, _} = Err ->
                     Err
@@ -92,7 +99,7 @@ snapshot(undefined, _Map) ->
     ok;
 snapshot(#{log := Log, snapshot := SnapPath}, Map) ->
     case mycelium_file:write_secure(SnapPath, term_to_binary(Map)) of
-        ok              -> disk_log:truncate(Log);
+        ok -> disk_log:truncate(Log);
         {error, _} = Err -> Err
     end.
 
@@ -118,8 +125,14 @@ delete(Name, Dir) ->
 %%====================================================================
 
 open_log(Name, LogPath) ->
-    case disk_log:open([{name, Name}, {file, LogPath},
-                        {type, halt}, {format, internal}]) of
+    case
+        disk_log:open([
+            {name, Name},
+            {file, LogPath},
+            {type, halt},
+            {format, internal}
+        ])
+    of
         {ok, Name} ->
             {ok, Name};
         {repaired, Name, {recovered, _R}, {badbytes, _B}} ->
@@ -148,8 +161,11 @@ replay(Log, Cont, Acc) ->
     end.
 
 apply_terms(Terms, Acc) ->
-    lists:foldl(fun(Delta, M) -> mycelium_ormap:merge(M, validate(Delta)) end,
-                Acc, Terms).
+    lists:foldl(
+        fun(Delta, M) -> mycelium_ormap:merge(M, validate(Delta)) end,
+        Acc,
+        Terms
+    ).
 
 read_snapshot(SnapPath) ->
     case file:read_file(SnapPath) of

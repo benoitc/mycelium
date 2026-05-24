@@ -39,11 +39,17 @@
 hyparview_event({peer_up, Peer}) ->
     add(<<"mycelium.hyparview.peer_up">>, 1, #{peer => Peer});
 hyparview_event({peer_down, Peer, Reason}) ->
-    add(<<"mycelium.hyparview.peer_down">>, 1,
-        #{peer => Peer, reason => reason_attr(Reason)});
+    add(
+        <<"mycelium.hyparview.peer_down">>,
+        1,
+        #{peer => Peer, reason => reason_attr(Reason)}
+    );
 hyparview_event({peer_down, Peer}) ->
-    add(<<"mycelium.hyparview.peer_down">>, 1,
-        #{peer => Peer, reason => unknown});
+    add(
+        <<"mycelium.hyparview.peer_down">>,
+        1,
+        #{peer => Peer, reason => unknown}
+    );
 hyparview_event(joined) ->
     add(<<"mycelium.hyparview.joined">>, 1, #{});
 hyparview_event(left) ->
@@ -61,7 +67,8 @@ auth_attempt(Role, Outcome, DurationMs) ->
     record(<<"mycelium.dist.auth.duration_ms">>, DurationMs, Attrs).
 
 -spec gossip_sent(non_neg_integer()) -> ok.
-gossip_sent(0) -> ok;
+gossip_sent(0) ->
+    ok;
 gossip_sent(N) when is_integer(N), N > 0 ->
     add(<<"mycelium.plumtree.gossip.sent">>, N, #{}).
 
@@ -70,7 +77,8 @@ gossip_received(From) ->
     add(<<"mycelium.plumtree.gossip.received">>, 1, #{from => From}).
 
 -spec ihave_sent(non_neg_integer()) -> ok.
-ihave_sent(0) -> ok;
+ihave_sent(0) ->
+    ok;
 ihave_sent(N) when is_integer(N), N > 0 ->
     add(<<"mycelium.plumtree.ihave.sent">>, N, #{}).
 
@@ -156,11 +164,17 @@ create(Name, Kind) ->
     end.
 
 safe_create(M, Name, counter) ->
-    try {ok, instrument_meter:create_counter(M, Name)}
-    catch _:_ -> skip end;
+    try
+        {ok, instrument_meter:create_counter(M, Name)}
+    catch
+        _:_ -> skip
+    end;
 safe_create(M, Name, histogram) ->
-    try {ok, instrument_meter:create_histogram(M, Name)}
-    catch _:_ -> skip end.
+    try
+        {ok, instrument_meter:create_histogram(M, Name)}
+    catch
+        _:_ -> skip
+    end.
 
 meter() ->
     case persistent_term:get(?METER_KEY, undefined) of
@@ -169,8 +183,9 @@ meter() ->
                 M = instrument_meter:get_meter(<<"mycelium">>),
                 persistent_term:put(?METER_KEY, M),
                 {ok, M}
-            catch _:_ ->
-                skip
+            catch
+                _:_ ->
+                    skip
             end;
         M ->
             {ok, M}
@@ -181,10 +196,11 @@ safe(F) ->
     try
         F(),
         ok
-    catch _:_ ->
-        ok
+    catch
+        _:_ ->
+            ok
     end.
 
 reason_attr(Reason) when is_atom(Reason) -> Reason;
-reason_attr({Tag, _}) when is_atom(Tag)  -> Tag;
-reason_attr(_)                           -> other.
+reason_attr({Tag, _}) when is_atom(Tag) -> Tag;
+reason_attr(_) -> other.

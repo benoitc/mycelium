@@ -34,7 +34,7 @@
 init(_Opts) ->
     Dir = discovery_dir(),
     case filelib:ensure_dir(filename:join(Dir, "dummy")) of
-        ok         -> {ok, Dir};
+        ok -> {ok, Dir};
         {error, R} -> {error, {discovery_dir_not_writable, Dir, R}}
     end.
 
@@ -44,15 +44,19 @@ register(Node, Port, _State) ->
     Host = host_of(NodeStr),
     Term = io_lib:format("~p.~n", [{Host, Port}]),
     Path = endpoint_path(Dir, NodeStr),
-    Tmp  = Path ++ ".tmp",
+    Tmp = Path ++ ".tmp",
     ok = filelib:ensure_dir(Path),
     case file:write_file(Tmp, iolist_to_binary(Term)) of
         ok ->
             case file:rename(Tmp, Path) of
-                ok    -> {ok, Dir};
-                Error -> _ = file:delete(Tmp), Error
+                ok ->
+                    {ok, Dir};
+                Error ->
+                    _ = file:delete(Tmp),
+                    Error
             end;
-        Error -> Error
+        Error ->
+            Error
     end.
 
 lookup(Node, _Host) ->
@@ -74,7 +78,8 @@ list_nodes(_Host) ->
         {ok, Files} ->
             Nodes = lists:filtermap(
                 fun(F) -> read_entry(filename:join(Dir, F)) end,
-                lists:filter(fun is_endpoint_file/1, Files)),
+                lists:filter(fun is_endpoint_file/1, Files)
+            ),
             {ok, Nodes};
         {error, enoent} ->
             {ok, []};
@@ -91,9 +96,9 @@ list_nodes(_Host) ->
 -spec unregister(node() | string() | binary()) -> ok | {error, term()}.
 unregister(Node) ->
     case file:delete(endpoint_path(discovery_dir(), node_to_string(Node))) of
-        ok              -> ok;
+        ok -> ok;
         {error, enoent} -> ok;
-        Err             -> Err
+        Err -> Err
     end.
 
 %%====================================================================
@@ -105,9 +110,9 @@ discovery_dir() ->
 
 %% Normalise atoms, binaries, and strings to a single string form
 %% so callers (upstream quic_dist + mycelium_app) can pass either.
-node_to_string(Node) when is_atom(Node)   -> atom_to_list(Node);
+node_to_string(Node) when is_atom(Node) -> atom_to_list(Node);
 node_to_string(Node) when is_binary(Node) -> binary_to_list(Node);
-node_to_string(Node) when is_list(Node)   -> Node.
+node_to_string(Node) when is_list(Node) -> Node.
 
 endpoint_path(Dir, NodeStr) when is_list(NodeStr) ->
     filename:join(Dir, NodeStr ++ ".endpoint").
@@ -115,13 +120,13 @@ endpoint_path(Dir, NodeStr) when is_list(NodeStr) ->
 host_of(NodeStr) when is_list(NodeStr) ->
     case string:split(NodeStr, "@") of
         [_, Host] -> Host;
-        _         -> "127.0.0.1"
+        _ -> "127.0.0.1"
     end.
 
 is_endpoint_file(F) ->
     case lists:reverse(F) of
         "tniopdne." ++ _ -> true;
-        _                -> false
+        _ -> false
     end.
 
 read_entry(Path) ->
@@ -144,7 +149,9 @@ read_entry(Path) ->
     end.
 
 materialise_node(Base, BaseBin) ->
-    try list_to_existing_atom(Base)
-    catch error:badarg ->
-        binary_to_atom(BaseBin, utf8)
+    try
+        list_to_existing_atom(Base)
+    catch
+        error:badarg ->
+            binary_to_atom(BaseBin, utf8)
     end.

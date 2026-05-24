@@ -30,9 +30,13 @@ init({Name, Opts}) ->
 
     Replica = #{
         id => replica,
-        start => {mycelium_replica, start_link,
-                  [#{name => mycelium_map:replica_name(Name),
-                     callback => mycelium_map}]},
+        start =>
+            {mycelium_replica, start_link, [
+                #{
+                    name => mycelium_map:replica_name(Name),
+                    callback => mycelium_map
+                }
+            ]},
         restart => permanent,
         shutdown => 5000,
         type => worker,

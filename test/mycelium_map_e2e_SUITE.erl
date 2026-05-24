@@ -41,8 +41,10 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Case, Config) ->
     SuiteDir = ?config(priv_dir, Config),
-    TcDir = filename:join(SuiteDir,
-                          "tc_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    TcDir = filename:join(
+        SuiteDir,
+        "tc_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     ok = filelib:ensure_dir(filename:join(TcDir, "dummy")),
     DiscoveryDir = filename:join(TcDir, "discovery"),
     ok = filelib:ensure_dir(filename:join(DiscoveryDir, "dummy")),
@@ -50,7 +52,11 @@ init_per_testcase(_Case, Config) ->
     [{tc_dir, TcDir}, {discovery_dir, DiscoveryDir} | Config].
 
 end_per_testcase(_Case, _Config) ->
-    Peers = case get(?MODULE) of undefined -> []; L -> L end,
+    Peers =
+        case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end,
     [catch peer:stop(P) || P <- Peers],
     erase(?MODULE),
     ok.
@@ -137,12 +143,15 @@ survives_owner_restart_via_full_sync(Config) ->
     OldPid = peer:call(Pc, erlang, whereis, [Owner]),
     ?assert(is_pid(OldPid)),
     true = peer:call(Pc, erlang, exit, [OldPid, kill]),
-    wait_until(fun() ->
-        case peer:call(Pc, erlang, whereis, [Owner]) of
-            P when is_pid(P), P =/= OldPid -> true;
-            _ -> false
-        end
-    end, 15000),
+    wait_until(
+        fun() ->
+            case peer:call(Pc, erlang, whereis, [Owner]) of
+                P when is_pid(P), P =/= OldPid -> true;
+                _ -> false
+            end
+        end,
+        15000
+    ),
 
     %% The recovered map re-syncs k=>v1 from its peers...
     wait_until(fun() -> map_get_on(Pc, m, k) =:= {ok, v1} end, 15000),
@@ -167,14 +176,24 @@ map_created_after_cluster_formation_syncs_existing_peer_state(Config) ->
     {Pb, _} = PeerB,
     ok = peer:call(Pa, mycelium, map_put, [m, k1, v1]),
     ok = peer:call(Pb, mycelium, map_put, [m, k2, v2]),
-    wait_until(fun() -> converged(Hosts, m, k1, v1)
-                            andalso converged(Hosts, m, k2, v2) end, 15000),
+    wait_until(
+        fun() ->
+            converged(Hosts, m, k1, v1) andalso
+                converged(Hosts, m, k2, v2)
+        end,
+        15000
+    ),
 
     %% Now bring the map up on C, which already has A and B as peers.
     {Pc, _} = PeerC,
     {ok, _} = peer:call(Pc, mycelium, new_map, [m]),
-    wait_until(fun() -> map_get_on(Pc, m, k1) =:= {ok, v1}
-                            andalso map_get_on(Pc, m, k2) =:= {ok, v2} end, 15000),
+    wait_until(
+        fun() ->
+            map_get_on(Pc, m, k1) =:= {ok, v1} andalso
+                map_get_on(Pc, m, k2) =:= {ok, v2}
+        end,
+        15000
+    ),
     ok.
 
 %% A presence-style map (`prune_on_peer_down => true') drops a departed
@@ -184,8 +203,10 @@ presence_map_prunes_departed_node(Config) ->
     Peers = start_cluster(Config),
     Nodes = [N || {_P, N} <- Peers],
     wait_until(fun() -> all_members_are(Peers, Nodes) end, 20000),
-    [ {ok, _} = peer:call(P, mycelium, new_map, [m, #{prune_on_peer_down => true}])
-      || {P, _N} <- Peers ],
+    [
+        {ok, _} = peer:call(P, mycelium, new_map, [m, #{prune_on_peer_down => true}])
+     || {P, _N} <- Peers
+    ],
 
     {Pc, NodeC} = lists:last(Peers),
     ok = peer:call(Pc, mycelium, map_put, [m, NodeC, up]),
@@ -194,7 +215,7 @@ presence_map_prunes_departed_node(Config) ->
 
     %% Kill C and force prompt failure detection (nodedown -> peer_down).
     ok = peer:stop(Pc),
-    [ peer:call(P, erlang, disconnect_node, [NodeC]) || {P, _N} <- Survivors ],
+    [peer:call(P, erlang, disconnect_node, [NodeC]) || {P, _N} <- Survivors],
 
     wait_until(fun() -> absent(Survivors, m, NodeC) end, 20000),
     ok.
@@ -210,14 +231,21 @@ persist_map_survives_full_cluster_restart(Config) ->
     Nodes0 = [N || {_P, N} <- Peers0],
     wait_until(fun() -> all_members_are(Peers0, Nodes0) end, 20000),
 
-    [ {ok, _} = peer:call(P, mycelium, new_map, [pm, #{persist => true}])
-      || {P, _N} <- Peers0 ],
+    [
+        {ok, _} = peer:call(P, mycelium, new_map, [pm, #{persist => true}])
+     || {P, _N} <- Peers0
+    ],
     {Pa, _} = hd(Peers0),
     {Pb, _} = lists:nth(2, Peers0),
     ok = peer:call(Pa, mycelium, map_put, [pm, k1, v1]),
     ok = peer:call(Pb, mycelium, map_put, [pm, k2, v2]),
-    wait_until(fun() -> converged(Peers0, pm, k1, v1)
-                            andalso converged(Peers0, pm, k2, v2) end, 15000),
+    wait_until(
+        fun() ->
+            converged(Peers0, pm, k1, v1) andalso
+                converged(Peers0, pm, k2, v2)
+        end,
+        15000
+    ),
     %% Let a scan snapshot cycle run on every node (default scan 1000ms), so
     %% each node persists its full converged state - gossiped writes are
     %% appended without fsync and only made durable by the snapshot. This is
@@ -225,18 +253,25 @@ persist_map_survives_full_cluster_restart(Config) ->
     timer:sleep(2000),
 
     %% Full-cluster restart with the same identities + data dirs.
-    [ ok = peer:stop(Pid) || {Pid, _N} <- Peers0 ],
+    [ok = peer:stop(Pid) || {Pid, _N} <- Peers0],
     timer:sleep(1000),
     Peers1 = [restart_peer(Tok, Config) || Tok <- Tokens],
     form_cluster(Peers1),
     Nodes1 = [N || {_P, N} <- Peers1],
     wait_until(fun() -> all_members_are(Peers1, Nodes1) end, 20000),
     %% Re-host the map on each node (node-local); recovers from disk.
-    [ {ok, _} = peer:call(P, mycelium, new_map, [pm, #{persist => true}])
-      || {P, _N} <- Peers1 ],
+    [
+        {ok, _} = peer:call(P, mycelium, new_map, [pm, #{persist => true}])
+     || {P, _N} <- Peers1
+    ],
 
-    wait_until(fun() -> converged(Peers1, pm, k1, v1)
-                            andalso converged(Peers1, pm, k2, v2) end, 20000),
+    wait_until(
+        fun() ->
+            converged(Peers1, pm, k1, v1) andalso
+                converged(Peers1, pm, k2, v2)
+        end,
+        20000
+    ),
     ok.
 
 %%====================================================================
@@ -251,7 +286,10 @@ start_map_probe(Name) ->
         Self ! probe_ready,
         map_probe_loop([])
     end),
-    receive probe_ready -> ok after 5000 -> error end.
+    receive
+        probe_ready -> ok
+    after 5000 -> error
+    end.
 
 map_probe_loop(Events) ->
     receive
@@ -266,14 +304,17 @@ map_probe_loop(Events) ->
 
 probe_events() ->
     map_probe ! {events, self()},
-    receive {events, E} -> E after 2000 -> [] end.
+    receive
+        {events, E} -> E
+    after 2000 -> []
+    end.
 
 %%====================================================================
 %% Map helpers
 %%====================================================================
 
 new_map_everywhere(Peers, Name) ->
-    [ {ok, _} = peer:call(P, mycelium, new_map, [Name]) || {P, _N} <- Peers ].
+    [{ok, _} = peer:call(P, mycelium, new_map, [Name]) || {P, _N} <- Peers].
 
 map_get_on(Peer, Name, Key) ->
     peer:call(Peer, mycelium, map_get, [Name, Key]).
@@ -291,7 +332,7 @@ absent(Peers, Name, Key) ->
 all_agree(Peers, Name, Key) ->
     case lists:usort([map_get_on(P, Name, Key) || {P, _N} <- Peers]) of
         [{ok, _}] -> true;
-        _         -> false
+        _ -> false
     end.
 
 %%====================================================================
@@ -301,33 +342,39 @@ all_agree(Peers, Name, Key) ->
 start_cluster(Config) ->
     {Pa, NodeA, _, C1} = start_peer("a", Config),
     {Pb, NodeB, _, C2} = start_peer("b", C1),
-    {Pc, NodeC, _, _}  = start_peer("c", C2),
+    {Pc, NodeC, _, _} = start_peer("c", C2),
     Peers = [{Pa, NodeA}, {Pb, NodeB}, {Pc, NodeC}],
     form_cluster(Peers),
     Peers.
 
 form_cluster(Peers) ->
     Pairs = [{Pi, Nj} || {Pi, Ni} <- Peers, {_Pj, Nj} <- Peers, Ni =/= Nj],
-    [ wait_until(fun() -> connect_ok(Pi, Nj) end, 30000) || {Pi, Nj} <- Pairs ],
-    [ _ = peer:call(Pi, mycelium, join, [Nj]) || {Pi, Nj} <- Pairs ],
+    [wait_until(fun() -> connect_ok(Pi, Nj) end, 30000) || {Pi, Nj} <- Pairs],
+    [_ = peer:call(Pi, mycelium, join, [Nj]) || {Pi, Nj} <- Pairs],
     wait_until(fun() -> fully_connected(Peers) end, 30000).
 
 connect_ok(P, N) ->
-    peer:call(P, net_kernel, connect_node, [N], 15000) =:= true
-        andalso lists:member(N, peer:call(P, erlang, nodes, [])).
+    peer:call(P, net_kernel, connect_node, [N], 15000) =:= true andalso
+        lists:member(N, peer:call(P, erlang, nodes, [])).
 
 fully_connected(Peers) ->
     Nodes = [N || {_P, N} <- Peers],
-    lists:all(fun({P, N}) ->
-        AV = peer:call(P, mycelium, active_view, []),
-        lists:all(fun(O) -> lists:member(O, AV) end, Nodes -- [N])
-    end, Peers).
+    lists:all(
+        fun({P, N}) ->
+            AV = peer:call(P, mycelium, active_view, []),
+            lists:all(fun(O) -> lists:member(O, AV) end, Nodes -- [N])
+        end,
+        Peers
+    ).
 
 all_members_are(Peers, Expected) ->
     Want = lists:sort(Expected),
-    lists:all(fun({P, _N}) ->
-        lists:sort(peer:call(P, mycelium, members, [])) =:= Want
-    end, Peers).
+    lists:all(
+        fun({P, _N}) ->
+            lists:sort(peer:call(P, mycelium, members, [])) =:= Want
+        end,
+        Peers
+    ).
 
 %%====================================================================
 %% Peer setup (mirrors mycelium_reminder_e2e_SUITE; short lease timings)
@@ -335,8 +382,10 @@ all_members_are(Peers, Expected) ->
 
 start_peer(Suffix, Config) ->
     Port = next_port(?config(base_port, Config)),
-    Name = list_to_atom("myc_" ++ Suffix ++ "_"
-                        ++ integer_to_list(erlang:unique_integer([positive]))),
+    Name = list_to_atom(
+        "myc_" ++ Suffix ++ "_" ++
+            integer_to_list(erlang:unique_integer([positive]))
+    ),
     {Pid, Node} = spawn_peer(Suffix, Name, Port, Config),
     %% The 3rd element is a restart token: same Suffix/Name/Port reuses the
     %% node identity and (per-node) data dirs, so a restarted node recovers
@@ -354,26 +403,50 @@ spawn_peer(Suffix, Name, Port, Config) ->
     KeysDir = filename:join(NodeDir, "data/keys"),
     RemindersDir = filename:join(NodeDir, "data/reminders"),
     MapsDir = filename:join(NodeDir, "data/maps"),
-    [ ok = filelib:ensure_dir(filename:join(D, "dummy"))
-      || D <- [QuicDir, KeysDir, RemindersDir, MapsDir] ],
+    [
+        ok = filelib:ensure_dir(filename:join(D, "dummy"))
+     || D <- [QuicDir, KeysDir, RemindersDir, MapsDir]
+    ],
     DiscoveryDir = ?config(discovery_dir, Config),
     BaseArgs = [
-        "-proto_dist", "mycelium",
-        "-epmd_module", "mycelium_epmd",
-        "-start_epmd", "false",
-        "-mycelium_dist_port",     integer_to_list(Port),
-        "-mycelium_dist_cert_dir", QuicDir,
-        "-setcookie", "mycelium_ct",
-        "-mycelium", "auth_key_dir",      quote(KeysDir),
-        "-mycelium", "discovery_dir",     quote(DiscoveryDir),
+        "-proto_dist",
+        "mycelium",
+        "-epmd_module",
+        "mycelium_epmd",
+        "-start_epmd",
+        "false",
+        "-mycelium_dist_port",
+        integer_to_list(Port),
+        "-mycelium_dist_cert_dir",
+        QuicDir,
+        "-setcookie",
+        "mycelium_ct",
+        "-mycelium",
+        "auth_key_dir",
+        quote(KeysDir),
+        "-mycelium",
+        "discovery_dir",
+        quote(DiscoveryDir),
         %% Per-node persistence dirs, so peers do not collide on one dir and
         %% a restart recovers this node's state.
-        "-mycelium", "reminder_data_dir",     quote(RemindersDir),
-        "-mycelium", "mycelium_map_data_dir", quote(MapsDir),
-        "-mycelium", "active_size",   "5",
-        "-mycelium", "member_heartbeat_ms", "500",
-        "-mycelium", "member_ttl_ms",       "2000",
-        "-mycelium", "member_skew_ms",      "60000"
+        "-mycelium",
+        "reminder_data_dir",
+        quote(RemindersDir),
+        "-mycelium",
+        "mycelium_map_data_dir",
+        quote(MapsDir),
+        "-mycelium",
+        "active_size",
+        "5",
+        "-mycelium",
+        "member_heartbeat_ms",
+        "500",
+        "-mycelium",
+        "member_ttl_ms",
+        "2000",
+        "-mycelium",
+        "member_skew_ms",
+        "60000"
     ],
     PaArgs = lists:flatmap(fun(P) -> ["-pa", P] end, code:get_path()),
     Args = PaArgs ++ BaseArgs,
@@ -385,7 +458,13 @@ spawn_peer(Suffix, Name, Port, Config) ->
         args => Args
     }),
     {ok, _Started} = peer:call(Pid, application, ensure_all_started, [mycelium]),
-    put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
+    put(?MODULE, [
+        Pid
+        | case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end
+    ]),
     {Pid, Node}.
 
 quote(S) ->
@@ -393,7 +472,11 @@ quote(S) ->
 
 next_port(BasePort) ->
     Key = {?MODULE, next_port_offset},
-    N = case get(Key) of undefined -> 0; X -> X end,
+    N =
+        case get(Key) of
+            undefined -> 0;
+            X -> X
+        end,
     put(Key, N + 1),
     BasePort + N.
 
@@ -403,10 +486,14 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case catch Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "wait_until timed out");
-                false -> timer:sleep(200), wait_loop(Fun, Deadline)
+                true ->
+                    ?assert(false, "wait_until timed out");
+                false ->
+                    timer:sleep(200),
+                    wait_loop(Fun, Deadline)
             end
     end.

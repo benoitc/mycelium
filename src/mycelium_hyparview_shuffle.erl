@@ -15,12 +15,18 @@
 -define(SERVER, ?MODULE).
 
 %% Shuffle period bounds (ms)
--define(MIN_SHUFFLE_PERIOD, 2000).   %% 2s minimum during high churn
--define(MAX_SHUFFLE_PERIOD, 30000).  %% 30s maximum during low churn
+
+%% 2s minimum during high churn
+-define(MIN_SHUFFLE_PERIOD, 2000).
+%% 30s maximum during low churn
+-define(MAX_SHUFFLE_PERIOD, 30000).
 
 %% Churn thresholds
--define(HIGH_CHURN_THRESHOLD, 10).   %% >10 events = high churn
--define(MEDIUM_CHURN_THRESHOLD, 5).  %% >5 events = medium churn
+
+%% >10 events = high churn
+-define(HIGH_CHURN_THRESHOLD, 10).
+%% >5 events = medium churn
+-define(MEDIUM_CHURN_THRESHOLD, 5).
 
 -record(state, {
     base_shuffle_period :: pos_integer(),
@@ -60,7 +66,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(trigger_shuffle, State) ->
     do_shuffle(State),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -69,15 +74,15 @@ handle_info(shuffle_timeout, State) ->
     NewPeriod = calculate_shuffle_period(State),
     State1 = State#state{current_period = NewPeriod},
     {noreply, schedule_shuffle(State1)};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State) ->
-    _ = case State#state.timer_ref of
-        undefined -> ok;
-        Ref -> erlang:cancel_timer(Ref)
-    end,
+    _ =
+        case State#state.timer_ref of
+            undefined -> ok;
+            Ref -> erlang:cancel_timer(Ref)
+        end,
     ok.
 
 %%====================================================================
@@ -104,17 +109,18 @@ calculate_shuffle_period(State) ->
     ChurnRate = Joins + Leaves,
     BasePeriod = State#state.base_shuffle_period,
 
-    Period = if
-        ChurnRate > ?HIGH_CHURN_THRESHOLD ->
-            %% High churn: use minimum period for faster view refresh
-            ?MIN_SHUFFLE_PERIOD;
-        ChurnRate > ?MEDIUM_CHURN_THRESHOLD ->
-            %% Medium churn: use half of base period
-            max(?MIN_SHUFFLE_PERIOD, BasePeriod div 2);
-        true ->
-            %% Normal: use base period, capped at max
-            min(BasePeriod, ?MAX_SHUFFLE_PERIOD)
-    end,
+    Period =
+        if
+            ChurnRate > ?HIGH_CHURN_THRESHOLD ->
+                %% High churn: use minimum period for faster view refresh
+                ?MIN_SHUFFLE_PERIOD;
+            ChurnRate > ?MEDIUM_CHURN_THRESHOLD ->
+                %% Medium churn: use half of base period
+                max(?MIN_SHUFFLE_PERIOD, BasePeriod div 2);
+            true ->
+                %% Normal: use base period, capped at max
+                min(BasePeriod, ?MAX_SHUFFLE_PERIOD)
+        end,
 
     %% Ensure within bounds
     max(?MIN_SHUFFLE_PERIOD, min(Period, ?MAX_SHUFFLE_PERIOD)).

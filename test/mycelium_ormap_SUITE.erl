@@ -139,7 +139,8 @@ test_merge_disjoint(_Config) ->
 test_merge_overlapping(_Config) ->
     %% Two maps with same key, latest HLC wins
     Map1 = mycelium_ormap:add(key, old_value, mycelium_ormap:new()),
-    timer:sleep(1), %% Ensure different HLC
+    %% Ensure different HLC
+    timer:sleep(1),
     Map2 = mycelium_ormap:add(key, new_value, mycelium_ormap:new()),
     %% Map2 was created later, so new_value should win
     Merged = mycelium_ormap:merge(Map1, Map2),
@@ -160,8 +161,10 @@ test_merge_commutative(_Config) ->
     MergedAB = mycelium_ormap:merge(Map1, Map2),
     MergedBA = mycelium_ormap:merge(Map2, Map1),
     %% Same keys and values
-    ?assertEqual(lists:sort(mycelium_ormap:to_list(MergedAB)),
-                 lists:sort(mycelium_ormap:to_list(MergedBA))),
+    ?assertEqual(
+        lists:sort(mycelium_ormap:to_list(MergedAB)),
+        lists:sort(mycelium_ormap:to_list(MergedBA))
+    ),
     ok.
 
 test_merge_associative(_Config) ->
@@ -171,6 +174,8 @@ test_merge_associative(_Config) ->
     Map3 = mycelium_ormap:add(c, 3, mycelium_ormap:new()),
     Merged1 = mycelium_ormap:merge(mycelium_ormap:merge(Map1, Map2), Map3),
     Merged2 = mycelium_ormap:merge(Map1, mycelium_ormap:merge(Map2, Map3)),
-    ?assertEqual(lists:sort(mycelium_ormap:to_list(Merged1)),
-                 lists:sort(mycelium_ormap:to_list(Merged2))),
+    ?assertEqual(
+        lists:sort(mycelium_ormap:to_list(Merged1)),
+        lists:sort(mycelium_ormap:to_list(Merged2))
+    ),
     ok.

@@ -29,7 +29,8 @@ start(_StartType, _StartArgs) ->
 %% see the call. Best-effort; logs and moves on if anything fails.
 publish_self() ->
     case node() of
-        nonode@nohost -> ok;
+        nonode@nohost ->
+            ok;
         Node ->
             case find_listen_port() of
                 {ok, Port} ->
@@ -41,7 +42,8 @@ publish_self() ->
                 error ->
                     logger:debug(
                         "[mycelium_app] no listen port found; "
-                        "skipping discovery publish"),
+                        "skipping discovery publish"
+                    ),
                     ok
             end
     end.
@@ -51,9 +53,11 @@ publish_self() ->
 %% #{port => P, ...}` during early boot, and the same entry sticks
 %% around once the quic app adopts the listener.
 find_listen_port() ->
-    Hits = [V
-            || {{quic_dist_early_listener, _}, V} <- persistent_term:get(),
-               is_map(V)],
+    Hits = [
+        V
+     || {{quic_dist_early_listener, _}, V} <- persistent_term:get(),
+        is_map(V)
+    ],
     case Hits of
         [#{port := Port} | _] when is_integer(Port) -> {ok, Port};
         _ -> error
@@ -86,7 +90,8 @@ check_cookie_safety(Cookie) ->
         true ->
             logger:warning(
                 "mycelium: using the default distribution cookie 'mycelium'. "
-                "Set {mycelium, [{dist_cookie, <secret>}]} for production.");
+                "Set {mycelium, [{dist_cookie, <secret>}]} for production."
+            );
         false ->
             ok
     end.

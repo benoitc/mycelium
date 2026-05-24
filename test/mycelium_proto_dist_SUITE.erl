@@ -42,8 +42,10 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Case, Config) ->
     SuiteDir = ?config(priv_dir, Config),
-    TcDir = filename:join(SuiteDir,
-                          "tc_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    TcDir = filename:join(
+        SuiteDir,
+        "tc_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
     ok = filelib:ensure_dir(filename:join(TcDir, "dummy")),
     DiscoveryDir = filename:join(TcDir, "discovery"),
     ok = filelib:ensure_dir(filename:join(DiscoveryDir, "dummy")),
@@ -51,7 +53,11 @@ init_per_testcase(_Case, Config) ->
     [{tc_dir, TcDir}, {discovery_dir, DiscoveryDir} | Config].
 
 end_per_testcase(_Case, _Config) ->
-    Peers = case get(?MODULE) of undefined -> []; L -> L end,
+    Peers =
+        case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end,
     [catch peer:stop(P) || P <- Peers],
     erase(?MODULE),
     ok.
@@ -63,18 +69,24 @@ end_per_testcase(_Case, _Config) ->
 lazy_cert_generation(Config) ->
     {_Pid, _Node, NodeDir, _Config2} = start_peer("cert", Config, #{}),
     CertFile = filename:join([NodeDir, "data", "quic", "node.crt"]),
-    KeyFile  = filename:join([NodeDir, "data", "quic", "node.key"]),
-    ?assert(filelib:is_regular(CertFile),
-            "cert file did not appear at " ++ CertFile),
+    KeyFile = filename:join([NodeDir, "data", "quic", "node.key"]),
+    ?assert(
+        filelib:is_regular(CertFile),
+        "cert file did not appear at " ++ CertFile
+    ),
     ?assert(filelib:is_regular(KeyFile)).
 
 single_node_boot(Config) ->
     {Pid, _Node, _Dir, _} = start_peer("boot", Config, #{}),
     {ok, Dist} = peer:call(Pid, application, get_env, [quic, dist]),
-    ?assertEqual({mycelium_dist_auth_callback, authenticate},
-                 proplists:get_value(auth_callback, Dist)),
-    ?assertEqual(mycelium_discovery,
-                 proplists:get_value(discovery_module, Dist)),
+    ?assertEqual(
+        {mycelium_dist_auth_callback, authenticate},
+        proplists:get_value(auth_callback, Dist)
+    ),
+    ?assertEqual(
+        mycelium_discovery,
+        proplists:get_value(discovery_module, Dist)
+    ),
     ?assertNotEqual(undefined, proplists:get_value(cert_file, Dist)),
     ?assertNotEqual(undefined, proplists:get_value(key_file, Dist)).
 
@@ -82,25 +94,35 @@ mycelium_dist_port_alias(Config) ->
     BasePort = ?config(base_port, Config),
     Port = BasePort + 5,
     {Pid, _Node, _Dir, _} = start_peer("portalias", Config, #{port => Port}),
-    ?assertEqual({ok, Port}, peer:call(Pid, application, get_env,
-                                       [quic, dist_port])).
+    ?assertEqual(
+        {ok, Port},
+        peer:call(
+            Pid,
+            application,
+            get_env,
+            [quic, dist_port]
+        )
+    ).
 
 two_node_connect(Config) ->
     {Pa, NodeA, _, Config1} = start_peer("a", Config, #{}),
     {Pb, NodeB, _, _Config2} = start_peer("b", Config1, #{}),
     true = peer:call(Pa, net_kernel, connect_node, [NodeB]),
-    wait_until(fun() ->
-        lists:member(NodeB, peer:call(Pa, erlang, nodes, [])) andalso
-        lists:member(NodeA, peer:call(Pb, erlang, nodes, []))
-    end, 5000).
+    wait_until(
+        fun() ->
+            lists:member(NodeB, peer:call(Pa, erlang, nodes, [])) andalso
+                lists:member(NodeA, peer:call(Pb, erlang, nodes, []))
+        end,
+        5000
+    ).
 
 %% Architectural keystone: a node not in B's active view can still
 %% receive `Pid ! Msg' from a third node, demonstrating that raw dist
 %% works independently of HyParView's bounded gossip topology.
 pid_send_outside_active_view(Config) ->
     {Pa, _NodeA, _, C1} = start_peer("a", Config, #{active_size => 1}),
-    {Pb, NodeB, _, C2}  = start_peer("b", C1, #{active_size => 1}),
-    {Pc, NodeC, _, _}   = start_peer("c", C2, #{active_size => 1}),
+    {Pb, NodeB, _, C2} = start_peer("b", C1, #{active_size => 1}),
+    {Pc, NodeC, _, _} = start_peer("c", C2, #{active_size => 1}),
     %% Pair A<->B at HyParView level.
     ok = peer:call(Pa, mycelium, join, [NodeB]),
     timer:sleep(800),
@@ -111,36 +133,45 @@ pid_send_outside_active_view(Config) ->
     timer:sleep(300),
     %% Precondition: C is NOT in B's active view.
     ActiveB = peer:call(Pb, mycelium, active_view, []),
-    ?assertNot(lists:member(NodeC, ActiveB),
-               "expected C absent from B's active view"),
+    ?assertNot(
+        lists:member(NodeC, ActiveB),
+        "expected C absent from B's active view"
+    ),
     %% Raw bang from C to PidOnB.
     Result = peer:call(Pc, ?MODULE, echo_to, [NodeB, greetings_from_c], 5000),
     ?assertMatch({ok, greetings_from_c, NodeB}, Result).
 
 active_eviction_keeps_dist(Config) ->
     {Pa, NodeA, _, C1} = start_peer("a", Config, #{active_size => 1}),
-    {Pb, NodeB, _, C2} = start_peer("b", C1,     #{active_size => 1}),
-    {Pc, NodeC, _, _}  = start_peer("c", C2,     #{active_size => 1}),
+    {Pb, NodeB, _, C2} = start_peer("b", C1, #{active_size => 1}),
+    {Pc, NodeC, _, _} = start_peer("c", C2, #{active_size => 1}),
     ok = peer:call(Pa, mycelium, join, [NodeB]),
     timer:sleep(500),
     ok = peer:call(Pc, mycelium, join, [NodeB]),
     timer:sleep(1000),
     ActiveB = peer:call(Pb, mycelium, active_view, []),
-    NodesB  = peer:call(Pb, erlang, nodes, []),
-    NodesA  = peer:call(Pa, erlang, nodes, []),
-    NodesC  = peer:call(Pc, erlang, nodes, []),
-    ct:pal("active_view(B)=~p~nnodes(A)=~p~nnodes(B)=~p~nnodes(C)=~p",
-           [ActiveB, NodesA, NodesB, NodesC]),
+    NodesB = peer:call(Pb, erlang, nodes, []),
+    NodesA = peer:call(Pa, erlang, nodes, []),
+    NodesC = peer:call(Pc, erlang, nodes, []),
+    ct:pal(
+        "active_view(B)=~p~nnodes(A)=~p~nnodes(B)=~p~nnodes(C)=~p",
+        [ActiveB, NodesA, NodesB, NodesC]
+    ),
     ?assertEqual(1, length(ActiveB)),
     %% Whichever of A/C is still in B's active view, the OTHER is the
     %% evicted-but-should-still-be-dist-connected peer.
-    Evicted = case lists:member(NodeA, ActiveB) of
-        true  -> NodeC;
-        false -> NodeA
-    end,
-    ?assert(lists:member(Evicted, NodesB),
-            io_lib:format("evicted peer ~p missing from nodes(B)=~p",
-                          [Evicted, NodesB])).
+    Evicted =
+        case lists:member(NodeA, ActiveB) of
+            true -> NodeC;
+            false -> NodeA
+        end,
+    ?assert(
+        lists:member(Evicted, NodesB),
+        io_lib:format(
+            "evicted peer ~p missing from nodes(B)=~p",
+            [Evicted, NodesB]
+        )
+    ).
 
 gc_skips_live_streams(Config) ->
     %% Large sweep_period_ms so the periodic sweep never fires during
@@ -149,15 +180,18 @@ gc_skips_live_streams(Config) ->
     %% the age check by the time we explicitly sweep.
     GcOpts = #{gc_min_age_ms => 100, gc_sweep_period_ms => 60000},
     {Pa, _NodeA, _, C1} = start_peer("a", Config, GcOpts),
-    {Pb, NodeB, _, _}   = start_peer("b", C1,     GcOpts),
+    {Pb, NodeB, _, _} = start_peer("b", C1, GcOpts),
     %% First connect_node call can race with the dist controller's
     %% init_state and the peer's auth handshake; use a connect_node
     %% timeout larger than peer:call's default 5s, and retry via
     %% wait_until in case the very first attempt times out.
-    wait_until(fun() ->
-        true =:= peer:call(Pa, net_kernel, connect_node, [NodeB], 15000)
-            andalso lists:member(NodeB, peer:call(Pa, erlang, nodes, []))
-    end, 30000),
+    wait_until(
+        fun() ->
+            true =:= peer:call(Pa, net_kernel, connect_node, [NodeB], 15000) andalso
+                lists:member(NodeB, peer:call(Pa, erlang, nodes, []))
+        end,
+        30000
+    ),
     Tag = <<"gctest">>,
     ok = peer:call(Pb, ?MODULE, register_acceptor, [Tag]),
     %% Open a tagged stream and confirm it stays LIVE. The peer's dist
@@ -168,8 +202,10 @@ gc_skips_live_streams(Config) ->
     {ok, _Holder} = wait_for_live_stream(Pa, Tag, NodeB, 15000),
     ok = peer:call(Pa, mycelium_dist_gc, sweep_now, []),
     NodesA = peer:call(Pa, erlang, nodes, []),
-    ?assert(lists:member(NodeB, NodesA),
-            "GC reaped a channel with a live user stream").
+    ?assert(
+        lists:member(NodeB, NodesA),
+        "GC reaped a channel with a live user stream"
+    ).
 
 %%====================================================================
 %% Helpers exported so peer:call/4 can invoke them
@@ -201,7 +237,11 @@ register_acceptor(Tag) ->
     %% notification so the QUIC stream's remote owner stays alive and
     %% quic_dist:list_streams on the opening side keeps returning the
     %% stream until the test explicitly tears it down.
-    Self = spawn(fun Loop() -> receive _ -> Loop() end end),
+    Self = spawn(fun Loop() ->
+        receive
+            _ -> Loop()
+        end
+    end),
     mycelium_streams:register_acceptor(Tag, Self),
     ok.
 
@@ -215,14 +255,16 @@ open_stream_persistent(Tag, Node) ->
         case mycelium_streams:open(Tag, Node) of
             {ok, SR} ->
                 Caller ! {self(), ok, SR},
-                receive close -> quic_dist:close_stream(SR) end;
+                receive
+                    close -> quic_dist:close_stream(SR)
+                end;
             Err ->
                 Caller ! {self(), Err}
         end
     end),
     receive
         {Holder, ok, _SR} -> {ok, Holder};
-        {Holder, Err}     -> Err
+        {Holder, Err} -> Err
     after 5000 ->
         exit(Holder, kill),
         {error, timeout}
@@ -250,27 +292,49 @@ start_peer(Suffix, Config, Opts) ->
     BasePort = ?config(base_port, Config),
     Port = maps:get(port, Opts, next_port(BasePort)),
     ActiveSize = maps:get(active_size, Opts, 5),
-    Name = list_to_atom("myc_" ++ Suffix ++ "_"
-                        ++ integer_to_list(erlang:unique_integer([positive]))),
+    Name = list_to_atom(
+        "myc_" ++ Suffix ++ "_" ++
+            integer_to_list(erlang:unique_integer([positive]))
+    ),
     %% -AppName Key Value pairs land in application env automatically.
     %% Strings need to be quoted so init parses them as term strings.
     BaseArgs = [
-        "-proto_dist", "mycelium",
-        "-epmd_module", "mycelium_epmd",
-        "-start_epmd", "false",
-        "-mycelium_dist_port",     integer_to_list(Port),
-        "-mycelium_dist_cert_dir", QuicDir,
-        "-setcookie", "mycelium_ct",
-        "-mycelium", "auth_key_dir",  quote(KeysDir),
-        "-mycelium", "discovery_dir", quote(DiscoveryDir),
-        "-mycelium", "active_size",   integer_to_list(ActiveSize)
+        "-proto_dist",
+        "mycelium",
+        "-epmd_module",
+        "mycelium_epmd",
+        "-start_epmd",
+        "false",
+        "-mycelium_dist_port",
+        integer_to_list(Port),
+        "-mycelium_dist_cert_dir",
+        QuicDir,
+        "-setcookie",
+        "mycelium_ct",
+        "-mycelium",
+        "auth_key_dir",
+        quote(KeysDir),
+        "-mycelium",
+        "discovery_dir",
+        quote(DiscoveryDir),
+        "-mycelium",
+        "active_size",
+        integer_to_list(ActiveSize)
     ],
-    GcArgs = case Opts of
-        #{gc_min_age_ms := MinAge, gc_sweep_period_ms := Period} ->
-            ["-mycelium", "dist_gc_min_age_ms",      integer_to_list(MinAge),
-             "-mycelium", "dist_gc_sweep_period_ms", integer_to_list(Period)];
-        _ -> []
-    end,
+    GcArgs =
+        case Opts of
+            #{gc_min_age_ms := MinAge, gc_sweep_period_ms := Period} ->
+                [
+                    "-mycelium",
+                    "dist_gc_min_age_ms",
+                    integer_to_list(MinAge),
+                    "-mycelium",
+                    "dist_gc_sweep_period_ms",
+                    integer_to_list(Period)
+                ];
+            _ ->
+                []
+        end,
     %% Peer inherits no code path by default; inject the parent's.
     PaArgs = lists:flatmap(fun(P) -> ["-pa", P] end, code:get_path()),
     Args = PaArgs ++ BaseArgs ++ GcArgs,
@@ -282,7 +346,13 @@ start_peer(Suffix, Config, Opts) ->
         args => Args
     }),
     {ok, _Started} = peer:call(Pid, application, ensure_all_started, [mycelium]),
-    put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
+    put(?MODULE, [
+        Pid
+        | case get(?MODULE) of
+            undefined -> [];
+            L -> L
+        end
+    ]),
     {Pid, Node, NodeDir, Config}.
 
 quote(S) ->
@@ -292,7 +362,11 @@ next_port(BasePort) ->
     %% Process-dictionary counter so peers within a single test get
     %% unique, sequential ports rather than colliding via hash.
     Key = {?MODULE, next_port_offset},
-    N = case get(Key) of undefined -> 0; X -> X end,
+    N =
+        case get(Key) of
+            undefined -> 0;
+            X -> X
+        end,
     put(Key, N + 1),
     BasePort + N.
 
@@ -308,26 +382,29 @@ wait_for_live_stream(Peer, Tag, Node, TimeoutMs) ->
 
 live_stream_loop(Peer, Tag, Node, Deadline) ->
     Opened = peer:call(Peer, ?MODULE, open_stream_persistent, [Tag, Node]),
-    Live = case Opened of
-        {ok, Holder} ->
-            %% Give a refusal-reset time to arrive, then confirm the
-            %% stream is still there.
-            timer:sleep(300),
-            case peer:call(Peer, quic_dist, list_streams, [Node]) of
-                [] -> false;
-                L when is_list(L) -> {ok, Holder}
-            end;
-        _ ->
-            false
-    end,
+    Live =
+        case Opened of
+            {ok, Holder} ->
+                %% Give a refusal-reset time to arrive, then confirm the
+                %% stream is still there.
+                timer:sleep(300),
+                case peer:call(Peer, quic_dist, list_streams, [Node]) of
+                    [] -> false;
+                    L when is_list(L) -> {ok, Holder}
+                end;
+            _ ->
+                false
+        end,
     case Live of
         {ok, _} = Ok ->
             Ok;
         false ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "no live user stream established");
-                false -> timer:sleep(100),
-                         live_stream_loop(Peer, Tag, Node, Deadline)
+                true ->
+                    ?assert(false, "no live user stream established");
+                false ->
+                    timer:sleep(100),
+                    live_stream_loop(Peer, Tag, Node, Deadline)
             end
     end.
 
@@ -337,10 +414,12 @@ wait_until(Fun, TimeoutMs) ->
 
 wait_loop(Fun, Deadline) ->
     case Fun() of
-        true -> ok;
+        true ->
+            ok;
         _ ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true -> ?assert(false, "wait_until timed out");
+                true ->
+                    ?assert(false, "wait_until timed out");
                 false ->
                     timer:sleep(100),
                     wait_loop(Fun, Deadline)

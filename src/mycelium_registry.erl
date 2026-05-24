@@ -24,8 +24,12 @@
 -export([merge_remote/1, remove_node_entries/1, remove_entry/2]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/2, replica_apply_full_sync/2,
-         replica_full_sync_snapshot/1, replica_remove_node/2]).
+-export([
+    replica_merge_delta/2,
+    replica_apply_full_sync/2,
+    replica_full_sync_snapshot/1,
+    replica_remove_node/2
+]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -89,7 +93,7 @@ get_local_ormap() ->
 overlay_lookup(Name) ->
     case mycelium_router:find_service(Name) of
         {found, Node, Pid} -> {ok, Node, Pid};
-        _                  -> {error, not_found}
+        _ -> {error, not_found}
     end.
 
 %% Ensure a proxy exists for a remote service
@@ -126,10 +130,8 @@ init([]) ->
 
 handle_call({register, Name, Meta}, {Pid, _}, State) ->
     do_register(Name, Pid, Meta, State);
-
 handle_call({register_pid, Name, Pid, Meta}, _From, State) ->
     do_register(Name, Pid, Meta, State);
-
 handle_call({unregister, Name}, _From, State) ->
     Key = {Name, node()},
     case mycelium_ormap:get(Key, State#state.local) of
@@ -137,12 +139,14 @@ handle_call({unregister, Name}, _From, State) ->
             Local = mycelium_ormap:remove(Key, State#state.local),
             %% Find and remove monitor
             MonitorRef = find_monitor_for_name(Name, State#state.monitors),
-            Monitors = case MonitorRef of
-                undefined -> State#state.monitors;
-                Ref ->
-                    demonitor(Ref, [flush]),
-                    maps:remove(Ref, State#state.monitors)
-            end,
+            Monitors =
+                case MonitorRef of
+                    undefined ->
+                        State#state.monitors;
+                    Ref ->
+                        demonitor(Ref, [flush]),
+                        maps:remove(Ref, State#state.monitors)
+                end,
             %% Broadcast removal
             mycelium_replica:broadcast_update(?REPLICA, {remove, Key}),
             %% Emit service event
@@ -151,7 +155,6 @@ handle_call({unregister, Name}, _From, State) ->
         not_found ->
             {reply, ok, State}
     end;
-
 handle_call({lookup, Name}, _From, State) ->
     %% Collect entries from local and remote OR-Maps
     LocalEntries = collect_entries_by_name(Name, State#state.local),
@@ -160,26 +163,21 @@ handle_call({lookup, Name}, _From, State) ->
         [] -> {reply, {error, not_found}, State};
         Entries -> {reply, {ok, Entries}, State}
     end;
-
 handle_call({lookup_local, Name}, _From, State) ->
     Key = {Name, node()},
     case mycelium_ormap:get(Key, State#state.local) of
         not_found -> {reply, {error, not_found}, State};
         {ok, #service_entry{pid = Pid}} -> {reply, {ok, Pid}, State}
     end;
-
 handle_call(list_services, _From, State) ->
     LocalNames = [N || {N, _Node} <- mycelium_ormap:keys(State#state.local)],
     RemoteNames = [N || {N, _Node} <- mycelium_ormap:keys(State#state.remote)],
     {reply, lists:usort(LocalNames ++ RemoteNames), State};
-
 handle_call(get_all_local, _From, State) ->
     Entries = [E || {_Key, E} <- mycelium_ormap:to_list(State#state.local)],
     {reply, Entries, State};
-
 handle_call(get_local_ormap, _From, State) ->
     {reply, State#state.local, State};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -189,16 +187,17 @@ handle_cast({merge_remote, DeltaMap}, State) ->
     %% Merge into remote OR-Map
     Remote = mycelium_ormap:merge(State#state.remote, DeltaMap),
     {noreply, State#state{remote = Remote}};
-
 handle_cast({remove_node, Node}, State) ->
     %% Remove all entries from the specified node
-    Remote = maps:filter(fun({_Name, N}, _Entry) ->
-        N =/= Node
-    end, State#state.remote),
+    Remote = maps:filter(
+        fun({_Name, N}, _Entry) ->
+            N =/= Node
+        end,
+        State#state.remote
+    ),
     %% Invalidate routes to this node
     mycelium_router:invalidate_route(Node),
     {noreply, State#state{remote = Remote}};
-
 handle_cast({remove_entry, Name, Node}, State) ->
     %% Remove specific entry from remote cache
     Key = {Name, Node},
@@ -206,7 +205,6 @@ handle_cast({remove_entry, Name, Node}, State) ->
     %% Invalidate route cache for this service
     mycelium_router:invalidate_route(Name),
     {noreply, State#state{remote = Remote}};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -222,7 +220,6 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
         error ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -239,9 +236,10 @@ terminate(_Reason, _State) ->
 replica_merge_delta(_Name, Delta) ->
     merge_remote(Delta),
     maps:foreach(
-        fun({Name, Node}, {value, _Entry, _Dots}) ->
+        fun
+            ({Name, Node}, {value, _Entry, _Dots}) ->
                 mycelium_service_events:notify({service_registered, Name, Node});
-           ({Name, Node}, {tombstone, _HLC}) ->
+            ({Name, Node}, {tombstone, _HLC}) ->
                 mycelium_router:invalidate_route(Name),
                 mycelium_service_events:notify({service_unregistered, Name, Node})
         end,
@@ -258,7 +256,7 @@ replica_apply_full_sync(_Name, RemoteORMap) ->
 replica_full_sync_snapshot(_Name) ->
     ORMap = get_local_ormap(),
     case mycelium_ormap:is_empty(ORMap) of
-        true  -> empty;
+        true -> empty;
         false -> {sync, ORMap}
     end.
 
