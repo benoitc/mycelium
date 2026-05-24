@@ -24,8 +24,11 @@ all() ->
     [
         put_on_a_converges_on_b,
         remove_converges,
+        remote_subscriber_receives_events,
+        concurrent_writes_converge,
         survives_owner_restart_via_full_sync,
-        map_created_after_cluster_formation_syncs_existing_peer_state
+        map_created_after_cluster_formation_syncs_existing_peer_state,
+        presence_map_prunes_departed_node
     ].
 
 init_per_suite(Config) ->
@@ -79,6 +82,40 @@ remove_converges(Config) ->
     wait_until(fun() -> converged(Peers, m, k, v1) end, 15000),
     ok = peer:call(Pa, mycelium, map_remove, [m, k]),
     wait_until(fun() -> absent(Peers, m, k) end, 15000),
+    ok.
+
+%% A subscriber on one node receives events for writes made on another.
+remote_subscriber_receives_events(Config) ->
+    Peers = start_cluster(Config),
+    Nodes = [N || {_P, N} <- Peers],
+    wait_until(fun() -> all_members_are(Peers, Nodes) end, 20000),
+    new_map_everywhere(Peers, m),
+
+    {Pa, _} = hd(Peers),
+    {Pb, _} = lists:nth(2, Peers),
+    ok = peer:call(Pb, ?MODULE, start_map_probe, [m]),
+
+    ok = peer:call(Pa, mycelium, map_put, [m, k, v1]),
+    wait_until(fun() -> lists:member({put, k, v1}, events_on(Pb)) end, 15000),
+    ok = peer:call(Pa, mycelium, map_remove, [m, k]),
+    wait_until(fun() -> lists:member({remove, k}, events_on(Pb)) end, 15000),
+    ok.
+
+%% Conflicting writes to the same key on two nodes converge: every node
+%% ends on a single last-write-wins value (one of the two written).
+concurrent_writes_converge(Config) ->
+    Peers = start_cluster(Config),
+    Nodes = [N || {_P, N} <- Peers],
+    wait_until(fun() -> all_members_are(Peers, Nodes) end, 20000),
+    new_map_everywhere(Peers, m),
+
+    {Pa, _} = hd(Peers),
+    {Pb, _} = lists:nth(2, Peers),
+    ok = peer:call(Pa, mycelium, map_put, [m, k, from_a]),
+    ok = peer:call(Pb, mycelium, map_put, [m, k, from_b]),
+    wait_until(fun() -> all_agree(Peers, m, k) end, 15000),
+    {ok, V} = map_get_on(Pa, m, k),
+    ?assert(lists:member(V, [from_a, from_b])),
     ok.
 
 %% Crash a node's map owner; rest_for_one restarts owner+replica, and the
@@ -139,6 +176,57 @@ map_created_after_cluster_formation_syncs_existing_peer_state(Config) ->
                             andalso map_get_on(Pc, m, k2) =:= {ok, v2} end, 15000),
     ok.
 
+%% A presence-style map (`prune_on_peer_down => true') drops a departed
+%% node's entries when it leaves. C announces itself, then dies; the
+%% survivors prune its presence key on peer_down.
+presence_map_prunes_departed_node(Config) ->
+    Peers = start_cluster(Config),
+    Nodes = [N || {_P, N} <- Peers],
+    wait_until(fun() -> all_members_are(Peers, Nodes) end, 20000),
+    [ {ok, _} = peer:call(P, mycelium, new_map, [m, #{prune_on_peer_down => true}])
+      || {P, _N} <- Peers ],
+
+    {Pc, NodeC} = lists:last(Peers),
+    ok = peer:call(Pc, mycelium, map_put, [m, NodeC, up]),
+    Survivors = [{P, N} || {P, N} <- Peers, N =/= NodeC],
+    wait_until(fun() -> converged(Survivors, m, NodeC, up) end, 15000),
+
+    %% Kill C and force prompt failure detection (nodedown -> peer_down).
+    ok = peer:stop(Pc),
+    [ peer:call(P, erlang, disconnect_node, [NodeC]) || {P, _N} <- Survivors ],
+
+    wait_until(fun() -> absent(Survivors, m, NodeC) end, 20000),
+    ok.
+
+%%====================================================================
+%% Map probe (runs on the peer; records map events)
+%%====================================================================
+
+start_map_probe(Name) ->
+    Self = self(),
+    spawn(fun() ->
+        ok = mycelium:subscribe_map(Name),
+        register(map_probe, self()),
+        Self ! probe_ready,
+        map_probe_loop([])
+    end),
+    receive probe_ready -> ok after 5000 -> error end.
+
+map_probe_loop(Events) ->
+    receive
+        {mycelium_map, _Name, Event} ->
+            map_probe_loop([Event | Events]);
+        {events, From} ->
+            From ! {events, lists:reverse(Events)},
+            map_probe_loop(Events);
+        stop ->
+            ok
+    end.
+
+probe_events() ->
+    map_probe ! {events, self()},
+    receive {events, E} -> E after 2000 -> [] end.
+
 %%====================================================================
 %% Map helpers
 %%====================================================================
@@ -149,11 +237,21 @@ new_map_everywhere(Peers, Name) ->
 map_get_on(Peer, Name, Key) ->
     peer:call(Peer, mycelium, map_get, [Name, Key]).
 
+events_on(Peer) ->
+    peer:call(Peer, ?MODULE, probe_events, []).
+
 converged(Peers, Name, Key, Expected) ->
     lists:all(fun({P, _N}) -> map_get_on(P, Name, Key) =:= {ok, Expected} end, Peers).
 
 absent(Peers, Name, Key) ->
     lists:all(fun({P, _N}) -> map_get_on(P, Name, Key) =:= not_found end, Peers).
+
+%% Every node reports the same present value for Key.
+all_agree(Peers, Name, Key) ->
+    case lists:usort([map_get_on(P, Name, Key) || {P, _N} <- Peers]) of
+        [{ok, _}] -> true;
+        _         -> false
+    end.
 
 %%====================================================================
 %% Orchestration
