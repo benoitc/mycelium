@@ -30,6 +30,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   entirely by the QUIC TLS layer.
 
 ### Added
+- Config-driven seeding: `contact_nodes` now auto-joins the listed seeds at
+  boot (`mycelium_bootstrap`), retrying every `contact_retry_ms` (default 5000)
+  until the node is in the overlay, with no manual `mycelium:join/1`. The
+  `contact_nodes` env was previously unused. Seeds must be resolvable through
+  the discovery chain.
 - Disk persistence for durable state (`mycelium_replica_log`: a write-ahead
   log plus periodic snapshots, recovered on boot). Durable reminders now
   survive a FULL-cluster restart, not just an individual node's death: each

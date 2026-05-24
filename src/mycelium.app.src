@@ -15,7 +15,8 @@
         mycelium_members_replica,
         mycelium_reminder,
         mycelium_reminder_replica,
-        mycelium_map_sup
+        mycelium_map_sup,
+        mycelium_bootstrap
     ]},
     {mod, {mycelium_app, []}},
     {applications, [
@@ -32,7 +33,13 @@
         {shuffle_length, 8},
         {shuffle_period, 10000},
         {listen_port, 0},
+        %% Seed nodes to auto-join at boot. A node with a non-empty list
+        %% repeatedly asks these to let it into the overlay (every
+        %% contact_retry_ms) until its active view is non-empty; the seeds
+        %% must be resolvable through the discovery chain. Leave empty on a
+        %% seed (it is the node others join).
         {contact_nodes, []},
+        {contact_retry_ms, 5000},
         %% Sharded placement. ring_size MUST be identical on every node
         %% in the cluster (a different value yields a different
         %% partition/place and the ring diverges). The lease timings

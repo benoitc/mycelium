@@ -193,6 +193,18 @@ init([]) ->
         modules => [mycelium_dist_gc]
     },
 
+    %% Seed bootstrap. Auto-joins the configured `contact_nodes' once the
+    %% overlay (HyParView) and the bridge are up; idles on a seed (empty
+    %% contact_nodes). Started last so join/active_view can reach them.
+    Bootstrap = #{
+        id => mycelium_bootstrap,
+        start => {mycelium_bootstrap, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [mycelium_bootstrap]
+    },
+
     ChildSpecs = [
         HLC,
         DistKeys,
@@ -208,6 +220,7 @@ init([]) ->
         MapSup,
         Bridge,
         Streams,
-        DistGc
+        DistGc,
+        Bootstrap
     ],
     {ok, {SupFlags, ChildSpecs}}.
