@@ -15,6 +15,9 @@
 %% Churn handling API
 -export([get_churn_stats/0, cleanup_passive_view/0]).
 
+%% Test-support: hold a partition by refusing overlay links to given nodes.
+-export([block_peers/1, unblock_peers/0]).
+
 %% Protocol handlers (called by mycelium_protocol)
 -export([handle_msg/2]).
 
@@ -44,6 +47,20 @@
 
 start_link(Config) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, Config, []).
+
+%% @doc Test-support: refuse overlay links to `Nodes' - drop them from the
+%% active/passive views, stop gossiping to them, and never (re)connect them -
+%% until `unblock_peers/0'. Holds a partition that `disconnect_node' alone
+%% cannot (HyParView would re-dial via passive promotion). Inert in normal
+%% operation: nothing calls it and the blocked set defaults empty.
+-spec block_peers([node()]) -> ok.
+block_peers(Nodes) ->
+    gen_server:call(?SERVER, {block_peers, Nodes}).
+
+%% @doc Test-support: clear the blocked set (heal the partition).
+-spec unblock_peers() -> ok.
+unblock_peers() ->
+    gen_server:call(?SERVER, unblock_peers).
 
 -spec join(node()) -> ok | {error, term()}.
 join(ContactNode) ->
@@ -129,11 +146,16 @@ handle_call({join, ContactNode}, _From, State) ->
         true ->
             {reply, {error, cannot_join_self}, State};
         false ->
-            Pending = insert_pending(
-                ContactNode, join, State#view_state.pending
-            ),
-            mycelium_bridge:request_connect(ContactNode),
-            {reply, ok, State#view_state{pending = Pending}}
+            case is_blocked(ContactNode, State) of
+                true ->
+                    {reply, ok, State};
+                false ->
+                    Pending = insert_pending(
+                        ContactNode, join, State#view_state.pending
+                    ),
+                    mycelium_bridge:request_connect(ContactNode),
+                    {reply, ok, State#view_state{pending = Pending}}
+            end
     end;
 handle_call(leave, _From, State) ->
     Self = State#view_state.self,
@@ -148,6 +170,23 @@ handle_call(leave, _From, State) ->
     ),
     mycelium_hyparview_events:notify(left),
     {reply, ok, State#view_state{active_view = #{}, passive_view = #{}}};
+handle_call({block_peers, Nodes}, _From, State) ->
+    %% Drop the blocked nodes from both views and notify peer_down so
+    %% Plumtree stops gossiping to them. The guards (is_blocked/2) keep
+    %% them out until unblock_peers/0.
+    [
+        mycelium_hyparview_events:notify({peer_down, N, blocked})
+     || N <- Nodes, maps:is_key(N, State#view_state.active_view)
+    ],
+    Blocked = lists:usort(Nodes ++ State#view_state.blocked),
+    State1 = State#view_state{
+        blocked = Blocked,
+        active_view = maps:without(Nodes, State#view_state.active_view),
+        passive_view = maps:without(Nodes, State#view_state.passive_view)
+    },
+    {reply, ok, State1};
+handle_call(unblock_peers, _From, State) ->
+    {reply, ok, State#view_state{blocked = []}};
 handle_call(active_view, _From, State) ->
     {reply, maps:keys(State#view_state.active_view), State};
 handle_call(passive_view, _From, State) ->
@@ -346,7 +385,10 @@ handle_forward_join(NewPeer, TTL, Sender, State) ->
                 State
         end,
 
-    case ActiveSize < State1#view_state.active_size of
+    case
+        ActiveSize < State1#view_state.active_size andalso
+            not is_blocked(NewPeer#peer.id, State1)
+    of
         true ->
             %% Room in active view - connect to new peer
             Pending = insert_pending(
@@ -518,6 +560,15 @@ make_peer(Node) ->
     }.
 
 add_to_active_view(Peer, State) ->
+    case is_blocked(Peer#peer.id, State) of
+        true ->
+            %% Refuse: a blocked peer must never enter the overlay.
+            State;
+        false ->
+            do_add_to_active_view(Peer, State)
+    end.
+
+do_add_to_active_view(Peer, State) ->
     Active = State#view_state.active_view,
     case maps:size(Active) < State#view_state.active_size of
         true ->
@@ -596,15 +647,18 @@ maybe_promote_passive(State) ->
             State
     end.
 
-%% Find a passive peer eligible for promotion (not in backoff, not too many failures)
+%% Find a passive peer eligible for promotion (not in backoff, not too many
+%% failures, not blocked).
 find_eligible_passive_peer(State, Now) ->
     MaxFails = State#view_state.max_fail_count,
+    Blocked = State#view_state.blocked,
     Candidates = maps:to_list(State#view_state.passive_view),
     Eligible = [
         {N, P}
      || {N, P} <- Candidates,
         P#peer.fail_count < MaxFails,
-        is_backoff_expired(P, Now)
+        is_backoff_expired(P, Now),
+        not lists:member(N, Blocked)
     ],
     case Eligible of
         [] ->
@@ -620,6 +674,11 @@ find_eligible_passive_peer(State, Now) ->
             {Node, Peer} = hd(Sorted),
             {ok, Node, Peer}
     end.
+
+%% Test-support: is this node currently blocked (partition held)? Always
+%% false in normal operation (the blocked set defaults empty).
+is_blocked(Node, #view_state{blocked = Blocked}) ->
+    lists:member(Node, Blocked).
 
 %% Compare peers by last_seen (more recent first)
 last_seen_cmp(#peer{last_seen = undefined}, #peer{last_seen = _}) -> false;

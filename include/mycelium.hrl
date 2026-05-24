@@ -77,7 +77,11 @@
     %% Window start time
     churn_window_start :: integer() | undefined,
     %% Churn tracking window (30s)
-    churn_window_ms = 30000 :: pos_integer()
+    churn_window_ms = 30000 :: pos_integer(),
+
+    %% Test-support: nodes this node refuses overlay links to (used to hold
+    %% a partition in chaos tests). Empty in normal operation -> inert.
+    blocked = [] :: [node()]
 }).
 
 %% Service registry entry
