@@ -26,7 +26,8 @@
     malformed_gossip_does_not_crash/1,
     tombstones_gc_after_ttl/1,
     delete_map_stops_instance/1,
-    ops_on_missing_map/1
+    ops_on_missing_map/1,
+    persist_recovers_after_restart/1
 ]).
 
 all() ->
@@ -35,9 +36,15 @@ all() ->
      unsubscribe_stops_events, subscriber_down_is_cleaned_up,
      validator_rejects_bad_put, simulated_remote_delta_merges_and_emits,
      malformed_gossip_does_not_crash, tombstones_gc_after_ttl,
-     delete_map_stops_instance, ops_on_missing_map].
+     delete_map_stops_instance, ops_on_missing_map,
+     persist_recovers_after_restart].
 
 init_per_testcase(_Case, Config) ->
+    %% Per-case map persistence dir, so a `persist => true' map writes to an
+    %% isolated location (no cross-case or repo pollution).
+    Dir = filename:join(?config(priv_dir, Config),
+                        "maps_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    application:set_env(mycelium, mycelium_map_data_dir, Dir),
     {ok, _} = application:ensure_all_started(mycelium),
     Config.
 
@@ -170,6 +177,22 @@ ops_on_missing_map(_Config) ->
     ?assertEqual({error, no_such_map}, mycelium:map_put(nope, k, v)),
     ?assertEqual(not_found, mycelium:map_get(nope, k)),
     ?assertEqual([], mycelium:map_keys(nope)).
+
+%% A `persist => true' map reloads its contents after a clean restart of
+%% the whole application (the single-node analogue of a full-cluster
+%% restart: nothing to re-sync from, so recovery is purely from disk).
+persist_recovers_after_restart(_Config) ->
+    {ok, _} = mycelium:new_map(pm, #{persist => true}),
+    ok = mycelium:map_put(pm, k, v),
+    ok = mycelium:map_put(pm, k2, v2),
+    ok = mycelium:map_remove(pm, k2),
+    %% Clean stop runs the owner's terminate (closes the log); the data dir
+    %% (set in init_per_testcase) persists across the restart.
+    application:stop(mycelium),
+    {ok, _} = application:ensure_all_started(mycelium),
+    {ok, _} = mycelium:new_map(pm, #{persist => true}),
+    ?assertEqual({ok, v}, mycelium:map_get(pm, k)),
+    ?assertEqual(not_found, mycelium:map_get(pm, k2)).
 
 %%====================================================================
 %% Helpers

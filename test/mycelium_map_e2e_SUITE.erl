@@ -28,7 +28,8 @@ all() ->
         concurrent_writes_converge,
         survives_owner_restart_via_full_sync,
         map_created_after_cluster_formation_syncs_existing_peer_state,
-        presence_map_prunes_departed_node
+        presence_map_prunes_departed_node,
+        persist_map_survives_full_cluster_restart
     ].
 
 init_per_suite(Config) ->
@@ -198,6 +199,46 @@ presence_map_prunes_departed_node(Config) ->
     wait_until(fun() -> absent(Survivors, m, NodeC) end, 20000),
     ok.
 
+%% A `persist => true' map reloads its contents after a FULL-cluster restart
+%% (every node down, then up with the same data dirs). Each node recovers its
+%% own on-disk copy and they re-converge.
+persist_map_survives_full_cluster_restart(Config) ->
+    Started = [start_peer(S, Config) || S <- ["a", "b", "c"]],
+    Peers0 = [{Pid, Node} || {Pid, Node, _Tok, _} <- Started],
+    Tokens = [Tok || {_Pid, _Node, Tok, _} <- Started],
+    form_cluster(Peers0),
+    Nodes0 = [N || {_P, N} <- Peers0],
+    wait_until(fun() -> all_members_are(Peers0, Nodes0) end, 20000),
+
+    [ {ok, _} = peer:call(P, mycelium, new_map, [pm, #{persist => true}])
+      || {P, _N} <- Peers0 ],
+    {Pa, _} = hd(Peers0),
+    {Pb, _} = lists:nth(2, Peers0),
+    ok = peer:call(Pa, mycelium, map_put, [pm, k1, v1]),
+    ok = peer:call(Pb, mycelium, map_put, [pm, k2, v2]),
+    wait_until(fun() -> converged(Peers0, pm, k1, v1)
+                            andalso converged(Peers0, pm, k2, v2) end, 15000),
+    %% Let a scan snapshot cycle run on every node (default scan 1000ms), so
+    %% each node persists its full converged state - gossiped writes are
+    %% appended without fsync and only made durable by the snapshot. This is
+    %% the realistic "clean restart of a quiesced cluster".
+    timer:sleep(2000),
+
+    %% Full-cluster restart with the same identities + data dirs.
+    [ ok = peer:stop(Pid) || {Pid, _N} <- Peers0 ],
+    timer:sleep(1000),
+    Peers1 = [restart_peer(Tok, Config) || Tok <- Tokens],
+    form_cluster(Peers1),
+    Nodes1 = [N || {_P, N} <- Peers1],
+    wait_until(fun() -> all_members_are(Peers1, Nodes1) end, 20000),
+    %% Re-host the map on each node (node-local); recovers from disk.
+    [ {ok, _} = peer:call(P, mycelium, new_map, [pm, #{persist => true}])
+      || {P, _N} <- Peers1 ],
+
+    wait_until(fun() -> converged(Peers1, pm, k1, v1)
+                            andalso converged(Peers1, pm, k2, v2) end, 20000),
+    ok.
+
 %%====================================================================
 %% Map probe (runs on the peer; records map events)
 %%====================================================================
@@ -293,18 +334,29 @@ all_members_are(Peers, Expected) ->
 %%====================================================================
 
 start_peer(Suffix, Config) ->
-    TcDir = ?config(tc_dir, Config),
-    NodeDir = filename:join(TcDir, Suffix),
-    ok = filelib:ensure_dir(filename:join(NodeDir, "dummy")),
-    QuicDir = filename:join(NodeDir, "data/quic"),
-    KeysDir = filename:join(NodeDir, "data/keys"),
-    ok = filelib:ensure_dir(filename:join(QuicDir, "dummy")),
-    ok = filelib:ensure_dir(filename:join(KeysDir, "dummy")),
-    DiscoveryDir = ?config(discovery_dir, Config),
-    BasePort = ?config(base_port, Config),
-    Port = next_port(BasePort),
+    Port = next_port(?config(base_port, Config)),
     Name = list_to_atom("myc_" ++ Suffix ++ "_"
                         ++ integer_to_list(erlang:unique_integer([positive]))),
+    {Pid, Node} = spawn_peer(Suffix, Name, Port, Config),
+    %% The 3rd element is a restart token: same Suffix/Name/Port reuses the
+    %% node identity and (per-node) data dirs, so a restarted node recovers
+    %% its persisted maps from disk.
+    {Pid, Node, {Suffix, Name, Port}, Config}.
+
+%% Restart a peer with the SAME identity and data dirs (full-restart tests).
+restart_peer({Suffix, Name, Port}, Config) ->
+    spawn_peer(Suffix, Name, Port, Config).
+
+spawn_peer(Suffix, Name, Port, Config) ->
+    TcDir = ?config(tc_dir, Config),
+    NodeDir = filename:join(TcDir, Suffix),
+    QuicDir = filename:join(NodeDir, "data/quic"),
+    KeysDir = filename:join(NodeDir, "data/keys"),
+    RemindersDir = filename:join(NodeDir, "data/reminders"),
+    MapsDir = filename:join(NodeDir, "data/maps"),
+    [ ok = filelib:ensure_dir(filename:join(D, "dummy"))
+      || D <- [QuicDir, KeysDir, RemindersDir, MapsDir] ],
+    DiscoveryDir = ?config(discovery_dir, Config),
     BaseArgs = [
         "-proto_dist", "mycelium",
         "-epmd_module", "mycelium_epmd",
@@ -312,8 +364,12 @@ start_peer(Suffix, Config) ->
         "-mycelium_dist_port",     integer_to_list(Port),
         "-mycelium_dist_cert_dir", QuicDir,
         "-setcookie", "mycelium_ct",
-        "-mycelium", "auth_key_dir",  quote(KeysDir),
-        "-mycelium", "discovery_dir", quote(DiscoveryDir),
+        "-mycelium", "auth_key_dir",      quote(KeysDir),
+        "-mycelium", "discovery_dir",     quote(DiscoveryDir),
+        %% Per-node persistence dirs, so peers do not collide on one dir and
+        %% a restart recovers this node's state.
+        "-mycelium", "reminder_data_dir",     quote(RemindersDir),
+        "-mycelium", "mycelium_map_data_dir", quote(MapsDir),
         "-mycelium", "active_size",   "5",
         "-mycelium", "member_heartbeat_ms", "500",
         "-mycelium", "member_ttl_ms",       "2000",
@@ -330,7 +386,7 @@ start_peer(Suffix, Config) ->
     }),
     {ok, _Started} = peer:call(Pid, application, ensure_all_started, [mycelium]),
     put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
-    {Pid, Node, NodeDir, Config}.
+    {Pid, Node}.
 
 quote(S) ->
     "\"" ++ S ++ "\"".

@@ -18,9 +18,16 @@
 %%% A map is NODE-LOCAL: `new/2' starts it on the calling node only. To be
 %%% cluster-wide it must run on every participating node - declare it in the
 %%% `replicated_maps' app env (started on every node at boot) or call
-%%% `new/2' on each node. Not for bulk data, high write rates, durable
-%%% storage (state is in-memory + gossip), or data needing custom conflict
-%%% resolution (use the `mycelium_replica' behaviour directly for that).
+%%% `new/2' on each node. Not for bulk data, high write rates, or data
+%%% needing custom conflict resolution (use the `mycelium_replica' behaviour
+%%% directly for that).
+%%%
+%%% State is in-memory + gossip by default (a full-cluster restart loses it).
+%%% Pass `persist => true' to back the map with a `mycelium_replica_log' WAL +
+%%% snapshot (under `mycelium_map_data_dir', default `data/maps'): writes are
+%%% fsynced and the map is recovered on boot, so it is durable across a
+%%% full-cluster restart. As with reminders, persisted values must be
+%%% restart-safe data (no pids/ports/refs/funs).
 
 -module(mycelium_map).
 -behaviour(gen_server).
@@ -48,11 +55,14 @@
 -define(OWNER_PREFIX, "mycelium_map$").
 -define(REPLICA_PREFIX, "mycelium_map_replica$").
 -define(TAB_PREFIX, "mycelium_map_tab$").
+-define(STORE_PREFIX, "mycelium_map_store$").
+-define(DEFAULT_MAP_DIR, "data/maps").
 
 -type opts() :: #{validator => fun((term()) -> boolean()) | {module(), atom()},
                   tombstone_ttl_ms => non_neg_integer(),
                   scan_ms => pos_integer(),
-                  prune_on_peer_down => boolean()}.
+                  prune_on_peer_down => boolean(),
+                  persist => boolean()}.
 -export_type([opts/0]).
 
 -record(state, {
@@ -64,7 +74,11 @@
     scan_ms          :: pos_integer(),
     tombstone_ttl_ms :: non_neg_integer(),
     prune            :: boolean(),
-    subscribers = #{} :: #{pid() => reference()}
+    subscribers = #{} :: #{pid() => reference()},
+    %% Optional disk persistence (opt-in via `persist'): WAL+snapshot handle
+    %% and a dirty flag so the scan only snapshots on churn.
+    log         = undefined :: mycelium_replica_log:handle(),
+    dirty       = false :: boolean()
 }).
 
 %%====================================================================
@@ -82,9 +96,15 @@ new(_Name, _Opts) ->
     {error, invalid_map_name}.
 
 %% @doc Stop the map on THIS node (node-local; not a cluster-wide erase).
+%% Also removes any persisted files, so a later `new/2' starts fresh rather
+%% than reloading stale data. `stop_map/1' is synchronous (it waits for the
+%% owner to terminate, which closes the log), so the delete runs strictly
+%% AFTER the log is closed - no `terminate/2' write can race the delete. The
+%% file delete is a no-op for a map that did not persist.
 -spec delete_map(atom()) -> ok.
 delete_map(Name) when is_atom(Name) ->
-    mycelium_map_sup:stop_map(Name).
+    ok = mycelium_map_sup:stop_map(Name),
+    mycelium_replica_log:delete(store_name(Name), cfg(mycelium_map_data_dir, ?DEFAULT_MAP_DIR)).
 
 %% @doc Put `Value' under `Key'. Rejected with `{error, invalid_value}' if
 %% the map's validator rejects the value.
@@ -152,6 +172,7 @@ unsubscribe(Name, Pid) when is_pid(Pid) ->
 owner_name(Name)   -> derived(?OWNER_PREFIX, Name).
 replica_name(Name) -> derived(?REPLICA_PREFIX, Name).
 tab_name(Name)     -> derived(?TAB_PREFIX, Name).
+store_name(Name)   -> derived(?STORE_PREFIX, Name).
 
 derived(Prefix, Name) ->
     list_to_atom(Prefix ++ atom_to_list(Name)).
@@ -188,20 +209,49 @@ start_link(Name, Opts) ->
     gen_server:start_link({local, owner_name(Name)}, ?MODULE, {Name, Opts}, []).
 
 init({Name, Opts}) ->
+    %% Trap exits so terminate/2 runs on supervisor shutdown and closes the
+    %% disk_log cleanly (we link to it via open).
+    process_flag(trap_exit, true),
     Tab = ets:new(tab_name(Name),
                   [named_table, protected, set, {read_concurrency, true}]),
     Scan = opt(scan_ms, Opts, cfg(mycelium_map_scan_ms, 1000)),
     Ttl  = opt(tombstone_ttl_ms, Opts,
                cfg(mycelium_map_tombstone_ttl_ms, 3600000)),
+    %% Optional disk recovery. Seeds both the OR-Map and the ETS read cache
+    %% from the persisted state; absorb_clock keeps the HLC monotonic.
+    {Log, Map0} = open_store(Name, maps:get(persist, Opts, false)),
+    seed_ets(Tab, Map0),
     arm_scan(Scan),
     {ok, #state{name = Name,
                 replica = replica_name(Name),
                 tab = Tab,
-                map = mycelium_ormap:new(),
+                map = Map0,
                 validator = normalise_validator(maps:get(validator, Opts, undefined)),
                 scan_ms = Scan,
                 tombstone_ttl_ms = Ttl,
-                prune = maps:get(prune_on_peer_down, Opts, false)}}.
+                prune = maps:get(prune_on_peer_down, Opts, false),
+                log = Log}}.
+
+%% Open the persistent store when `persist' is set; otherwise run with no
+%% log handle (every log call is a no-op). A failed open degrades to
+%% in-memory only, never fatal.
+open_store(_Name, false) ->
+    {undefined, mycelium_ormap:new()};
+open_store(Name, true) ->
+    Dir = cfg(mycelium_map_data_dir, ?DEFAULT_MAP_DIR),
+    case mycelium_replica_log:open(store_name(Name), Dir) of
+        {ok, Log, Map} ->
+            ok = mycelium_ormap:absorb_clock(Map),
+            {Log, Map};
+        {error, Reason} ->
+            logger:warning("mycelium_map ~p: persistence disabled, open "
+                           "failed: ~p", [Name, Reason]),
+            {undefined, mycelium_ormap:new()}
+    end.
+
+seed_ets(Tab, Map) ->
+    lists:foreach(fun({K, V}) -> ets:insert(Tab, {K, V}) end,
+                  mycelium_ormap:to_list(Map)).
 
 handle_call({put, Key, Value}, _From, State) ->
     case run_validator(State#state.validator, Value) of
@@ -210,7 +260,7 @@ handle_call({put, Key, Value}, _From, State) ->
             ets:insert(State#state.tab, {Key, Value}),
             notify(State, {put, Key, Value}),
             mycelium_replica:broadcast_update(State#state.replica, {add, Key, Value}),
-            {reply, ok, State#state{map = Map}};
+            {reply, ok, persist_key(Key, sync, State#state{map = Map})};
         false ->
             {reply, {error, invalid_value}, State}
     end;
@@ -220,7 +270,7 @@ handle_call({remove, Key}, _From, State) ->
     ets:delete(State#state.tab, Key),
     notify(State, {remove, Key}),
     mycelium_replica:broadcast_update(State#state.replica, {remove, Key}),
-    {reply, ok, State#state{map = Map}};
+    {reply, ok, persist_key(Key, sync, State#state{map = Map})};
 
 handle_call({subscribe, Pid}, _From, State) ->
     case maps:is_key(Pid, State#state.subscribers) of
@@ -253,7 +303,7 @@ handle_call(_Req, _From, State) ->
 handle_cast({merge, Incoming}, State) ->
     {Map, Accepted} =
         mycelium_crdt_wire:ingest(State#state.map, Incoming, State#state.validator),
-    State1 = State#state{map = Map},
+    State1 = persist_keys(maps:keys(Accepted), nosync, State#state{map = Map}),
     {noreply, project_keys(maps:keys(Accepted), State1)};
 
 handle_cast({remove_node, Node}, State = #state{prune = true}) ->
@@ -266,12 +316,21 @@ handle_cast({remove_node, _Node}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-%% Periodic tombstone GC so the replicated store stays bounded.
+%% Periodic tombstone GC so the replicated store stays bounded. Snapshots
+%% to disk (and truncates the WAL) when the store changed since the last
+%% snapshot, including a GC that dropped tombstones.
 handle_info(scan, State) ->
     Cutoff = now_ms() - State#state.tombstone_ttl_ms,
-    Map = mycelium_ormap:gc_tombstones(State#state.map, Cutoff),
-    arm_scan(State#state.scan_ms),
-    {noreply, State#state{map = Map}};
+    Old = State#state.map,
+    Map = mycelium_ormap:gc_tombstones(Old, Cutoff),
+    Dirty = State#state.dirty orelse map_size(Map) =/= map_size(Old),
+    State1 = State#state{map = Map, dirty = false},
+    case Dirty of
+        true  -> _ = mycelium_replica_log:snapshot(State1#state.log, Map);
+        false -> ok
+    end,
+    arm_scan(State1#state.scan_ms),
+    {noreply, State1};
 
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case maps:get(Pid, State#state.subscribers, undefined) of
@@ -282,7 +341,8 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+    _ = mycelium_replica_log:close(State#state.log),
     ok.
 
 %%====================================================================
@@ -313,12 +373,14 @@ project_key(Key, State) ->
             end
     end.
 
-%% Local-only prune of a departed node's entries (prune_on_peer_down).
+%% Local-only prune of a departed node's entries (prune_on_peer_down). Mark
+%% dirty so the next scan snapshots the prune to disk (no WAL entry: the key
+%% is hard-removed, not tombstoned).
 drop_key(Key, State) ->
     Map = maps:remove(Key, State#state.map),
     ets:delete(State#state.tab, Key),
     notify(State, {remove, Key}),
-    State#state{map = Map}.
+    State#state{map = Map, dirty = true}.
 
 owned_only_by(Key, Node, Map) ->
     case mycelium_ormap:get_entry(Key, Map) of
@@ -330,6 +392,31 @@ owned_only_by(Key, Node, Map) ->
 
 notify(#state{name = Name, subscribers = Subs}, Event) ->
     maps:foreach(fun(Pid, _Ref) -> Pid ! {mycelium_map, Name, Event} end, Subs).
+
+%% Append the current entry (value or tombstone) for the given key(s) to the
+%% WAL, marking the store dirty. `sync' forces it to disk before returning
+%% (user-facing writes); `nosync' defers durability to the scan snapshot
+%% (gossip merges). A no-op when persistence is off (log = undefined).
+persist_key(Key, Sync, State) ->
+    persist_keys([Key], Sync, State).
+
+persist_keys(Keys, Sync, #state{log = Log, map = Map} = State) ->
+    Delta = entries_of(Keys, Map),
+    ok = mycelium_replica_log:append(Log, Delta),
+    case Sync of
+        sync   -> ok = mycelium_replica_log:sync(Log);
+        nosync -> ok
+    end,
+    State#state{dirty = State#state.dirty orelse map_size(Delta) > 0}.
+
+entries_of(Keys, Map) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case mycelium_ormap:get_entry(Key, Map) of
+                {ok, Entry} -> Acc#{Key => Entry};
+                not_found   -> Acc
+            end
+        end, #{}, Keys).
 
 call(Name, Msg) ->
     try gen_server:call(owner_name(Name), Msg)
