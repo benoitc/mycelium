@@ -257,30 +257,19 @@ terminate(_Reason, _State) ->
 %% Internal Functions
 %%====================================================================
 
-%% Merge a received delta/snapshot, rejecting malformed entries FIRST.
-%% Validating only the leaf payload is not enough: absorb_clock/1 walks
-%% the dot map and every dot/tombstone HLC, and merge/2 takes max_hlc of
-%% the dots (crashes on an empty dot map). A malformed dot or HLC would
-%% otherwise crash this gen_server (and a bad HLC would crash the shared
-%% mycelium_hlc server). So absorb + merge only the accepted sub-map.
+%% Merge a received delta/snapshot, rejecting malformed entries FIRST via
+%% mycelium_crdt_wire (it validates the whole wrapper - dots and HLCs -
+%% before absorb_clock/merge, which would otherwise crash this gen_server
+%% or the shared mycelium_hlc server). We add the reminder-specific leaf
+%% check on top: the payload must be our {FireAt, _, VersionHLC} shape.
 ingest(Map, State) ->
-    Accepted = maps:filter(fun(_K, V) -> valid_entry(V) end, Map),
-    mycelium_ormap:absorb_clock(Accepted),
-    Reminders = mycelium_ormap:merge(State#state.reminders, Accepted),
+    {Reminders, Accepted} =
+        mycelium_crdt_wire:ingest(State#state.reminders, Map, fun valid_leaf/1),
     reconcile_keys(maps:keys(Accepted), State#state{reminders = Reminders}).
 
-%% A well-formed reminder OR-map entry: a value carrying our
-%% {FireAt, Payload, VersionHLC} payload with a non-empty dot map keyed by
-%% {node(), HLC}, or a tombstone carrying an HLC.
-valid_entry({value, {FireAt, _Payload, #timestamp{}}, Dots})
-  when is_integer(FireAt), is_map(Dots), map_size(Dots) > 0 ->
-    lists:all(fun({N, #timestamp{}}) when is_atom(N) -> true;
-                 (_)                                 -> false
-              end, maps:keys(Dots));
-valid_entry({tombstone, #timestamp{}}) ->
-    true;
-valid_entry(_) ->
-    false.
+%% A well-formed reminder leaf payload: {FireAt, Payload, VersionHLC}.
+valid_leaf({FireAt, _Payload, #timestamp{}}) when is_integer(FireAt) -> true;
+valid_leaf(_) -> false.
 
 %% Insert locally first (broadcast does not mutate owner state), gossip
 %% the add, then arm if we own the key.
