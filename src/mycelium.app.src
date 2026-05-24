@@ -52,6 +52,10 @@
         %% dropped tombstone can still be in flight (else a reminder could
         %% be resurrected after a long partition).
         {reminder_tombstone_ttl_ms, 3600000},
+        %% Directory for the durable reminder store (WAL + snapshot), so
+        %% reminders survive a full-cluster restart. Per-node; give each
+        %% node its own path. Persistence is on by default.
+        {reminder_data_dir, "data/reminders"},
         %% Public replicated maps (mycelium_map). Maps declared here start
         %% on every node at boot, so a config-declared map is cluster-wide
         %% with no per-node call. Each entry is {Name :: atom(), Opts :: map()}.
@@ -60,7 +64,10 @@
         %% caveat as reminder_tombstone_ttl_ms). Overridable per map via
         %% new/2 Opts.
         {mycelium_map_scan_ms, 1000},
-        {mycelium_map_tombstone_ttl_ms, 3600000}
+        {mycelium_map_tombstone_ttl_ms, 3600000},
+        %% Directory for maps started with `persist => true' (WAL +
+        %% snapshot, per map). Per-node; give each node its own path.
+        {mycelium_map_data_dir, "data/maps"}
     ]},
     {modules, []},
     {licenses, ["Apache-2.0"]},
