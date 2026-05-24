@@ -140,6 +140,10 @@ For production notes, see [run in production](docs/how-to/run-in-production.md).
   instead of a full mesh.
 - **Service registry**. Processes can be registered by name and found
   from any node through a CRDT-backed registry.
+- **Replicated state**. `mycelium_map` is a gossiped, last-write-wins
+  key-value map for cluster-wide config, flags, and routing tables;
+  the `mycelium_replica` behaviour underneath is public for custom
+  merge.
 - **Plumtree broadcast**. Registry changes and gossip move through an
   efficient epidemic broadcast tree.
 - **Ed25519 peer identity**. Nodes prove their identity after the QUIC

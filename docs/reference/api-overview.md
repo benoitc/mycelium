@@ -205,6 +205,35 @@ Delivered to subscribers on the firing (owner) node:
 See [durable reminders](../concepts/durable-reminders.md) and
 [schedule durable jobs](../how-to/schedule-durable-jobs.md).
 
+## Replicated maps (`beta`)
+
+```erlang
+%% Start a named map on THIS node (idempotent). A map is node-local:
+%% host it on every participating node (the replicated_maps env, or
+%% new_map/2 per node). Opts: validator | tombstone_ttl_ms | scan_ms |
+%% prune_on_peer_down.
+-spec new_map(Name :: atom()) -> {ok, pid()} | {error, term()}.
+-spec new_map(Name, Opts :: mycelium_map:opts()) -> {ok, pid()} | {error, term()}.
+%% Stop the map on THIS node (node-local; not a cluster-wide erase).
+-spec delete_map(Name) -> ok.
+%% {error, invalid_value} if the map's validator rejects Value.
+-spec map_put(Name, Key, Value) -> ok | {error, invalid_value | no_such_map}.
+-spec map_remove(Name, Key) -> ok | {error, no_such_map}.
+%% Lock-free ETS reads.
+-spec map_get(Name, Key) -> {ok, term()} | not_found.
+-spec map_keys(Name) -> [term()].
+-spec map_to_list(Name) -> [{term(), term()}].
+%% Subscribe to {mycelium_map, Name, {put, K, V} | {remove, K}}.
+-spec subscribe_map(Name) -> ok | {error, no_such_map}.
+-spec subscribe_map(Name, Pid :: pid()) -> ok | {error, no_such_map}.
+-spec unsubscribe_map(Name) -> ok | {error, no_such_map}.
+-spec unsubscribe_map(Name, Pid :: pid()) -> ok | {error, no_such_map}.
+```
+
+See [replicated maps](../concepts/replicated-maps.md),
+[share replicated state](../how-to/share-replicated-state.md), and
+[the replicated substrate](replicated-substrate.md) for custom merge.
+
 ## Global integration (`beta`)
 
 ```erlang

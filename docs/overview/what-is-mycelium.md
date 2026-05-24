@@ -40,6 +40,7 @@ keeps only five active links.
 | HyParView membership | Bounded connection count, gossip-based reachability | [Cluster membership concept](../concepts/cluster-membership.md) |
 | Ed25519 mutual auth | TOFU or strict per-peer key pinning | [Authentication concept](../concepts/authentication.md) |
 | CRDT service registry | Cluster-wide named services with eventual consistency | [Service registry concept](../concepts/service-registry.md) |
+| Replicated maps | Gossiped key-value state for config, flags, routing tables | [Replicated maps concept](../concepts/replicated-maps.md) |
 | Plumtree gossip | Efficient broadcast for service-state updates | [Gossip broadcast concept](../concepts/gossip-broadcast.md) |
 | Tagged user streams | App-level multiplex over the same QUIC connection | [Streams concept](../concepts/streams.md) |
 | Connection migration | RFC 9000 §9 path rebind without restart | [Migration concept](../concepts/connection-migration.md) |

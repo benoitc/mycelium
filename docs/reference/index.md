@@ -15,6 +15,9 @@ architectural details, comparison with adjacent projects.
   and pointers into the source code.
 - [Comparison with Partisan](comparison-with-partisan.md) —
   side-by-side feature matrix, when to pick which library.
+- [The replicated substrate](replicated-substrate.md) — the
+  low-level `mycelium_replica` behaviour and `mycelium_crdt_wire`,
+  for custom merge beyond `mycelium_map`.
 
 ## Related
 

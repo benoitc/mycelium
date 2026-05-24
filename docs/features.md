@@ -72,6 +72,16 @@ Stability tiers used below:
 | `{mycelium_reminder, Key, Payload, Fence}` delivery       | beta      | CT: `mycelium_reminder_SUITE` (stable fence, no double-fire)        |
 | Survivor fires after owner death                          | beta      | CT: `mycelium_reminder_e2e_SUITE` (kill owner before fire)          |
 
+## Replicated maps
+
+| Feature                                                   | Tier      | Coverage notes                                                       |
+|-----------------------------------------------------------|-----------|----------------------------------------------------------------------|
+| `new_map/1,2`, `delete_map/1`                             | beta      | CT: `mycelium_map_SUITE`, `mycelium_map_e2e_SUITE`                  |
+| `map_put/3`, `map_remove/2`, `map_get/2`, `map_keys/1`, `map_to_list/1` | beta | CT: `mycelium_map_SUITE`; convergence in `mycelium_map_e2e_SUITE` |
+| `subscribe_map/1,2`, `unsubscribe_map/1,2`                | beta      | CT: `mycelium_map_SUITE` (events, DOWN cleanup)                     |
+| `{mycelium_map, Name, {put \| remove, ...}}` events       | beta      | CT: `mycelium_map_SUITE`                                            |
+| Late-join full-sync from peers                            | beta      | CT: `mycelium_map_e2e_SUITE` (map created after cluster formation) |
+
 ## Streams
 
 | Feature                                       | Tier         | Coverage notes                                                  |
@@ -85,6 +95,8 @@ Stability tiers used below:
 |-----------------------------------------------|--------------|-----------------------------------------------------------------|
 | `mycelium_ormap` (OR-Map CRDT)                | supported    | CT: `mycelium_ormap_SUITE`; prop suite                          |
 | `mycelium_hlc` (Hybrid Logical Clock)         | supported    | CT: `mycelium_hlc_SUITE`; prop suite                            |
+| `mycelium_replica` replication behaviour      | beta         | CT: the 4 consumer suites + `mycelium_map_e2e_SUITE`            |
+| `mycelium_crdt_wire` safe gossip ingest       | supported    | EUnit: `mycelium_crdt_wire_tests`; CT: `mycelium_map_SUITE`     |
 
 ## Operations
 

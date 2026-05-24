@@ -30,6 +30,9 @@ natural one.
   over a replicated live-node set; `place/1` and ownership events.
 - [Durable reminders](durable-reminders.md) — replicated,
   fire-at-most-once timers that survive the node that armed them.
+- [Replicated maps](replicated-maps.md) — `mycelium_map`, a
+  gossiped last-write-wins key-value map for cluster-wide
+  control-plane state.
 
 ## The transport
 
