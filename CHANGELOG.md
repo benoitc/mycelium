@@ -30,6 +30,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   entirely by the QUIC TLS layer.
 
 ### Added
+- Replicated maps (`mycelium_map`): `mycelium:new_map/1,2`,
+  `delete_map/1`, `map_put/3`, `map_remove/2`, `map_get/2`, `map_keys/1`,
+  `map_to_list/1`, `subscribe_map/1,2`, `unsubscribe_map/1,2`. A named,
+  gossiped, last-write-wins key-value map for small cluster-wide
+  control-plane state (config, flags, routing tables). One owner gen_server
+  per map (sole writer) with a lock-free ETS read cache; changes emit
+  `{mycelium_map, Name, {put, K, V} | {remove, K}}`. A map is node-local:
+  host it on every node via the `replicated_maps` env or per-node `new_map/2`.
+  Per-map opts: `validator`, `tombstone_ttl_ms`, `scan_ms`,
+  `prune_on_peer_down` (default `false`). Config:
+  `replicated_maps`, `mycelium_map_scan_ms`, `mycelium_map_tombstone_ttl_ms`.
+  Beta.
+- The `mycelium_replica` replication driver is now a public behaviour for
+  building replicated state with custom merge or snapshot semantics. Callbacks
+  receive the instance name first, so one module can back many named
+  instances. `mycelium_crdt_wire` is a supported helper for safe gossip
+  ingest (wrapper validation + optional leaf check; guards non-map payloads).
 - Durable reminders (`mycelium_reminder`): `mycelium:remind/3`,
   `remind_after/3`, `cancel_reminder/1`, `subscribe_reminders/0,1`,
   `unsubscribe_reminders/1`. Replicated, fire-at-most-once timers that
@@ -68,6 +85,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`mycelium_registry_replica`, `mycelium_leader_replica`).
   `mycelium_hyparview` no longer calls the registry sync directly; the
   replica subscribes to the peer-event bus.
+- `mycelium_replica` callbacks now take the instance name as their first
+  argument (`replica_merge_delta/2`, `replica_apply_full_sync/2`,
+  `replica_full_sync_snapshot/1`, `replica_remove_node/2`, optional
+  `replica_merge_custom/2`). Internal-only: the four in-tree consumers
+  (registry, leader, shard, reminder) were updated; there are no external
+  implementers pre-1.0.
+- A `mycelium_replica` instance now seeds peers from the active view and
+  pulls a full sync on start, so an instance started after the cluster has
+  already formed recovers existing state instead of sitting empty.
 
 ### Fixed
 - Event subscriptions survive a restart of the source process. Sources
