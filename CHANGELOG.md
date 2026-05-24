@@ -30,6 +30,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   entirely by the QUIC TLS layer.
 
 ### Added
+- The partition-heal soak case (`mycelium_soak_SUITE:partition_and_heal`,
+  gated by `MYCELIUM_CT_SOAK=1`) is now a real, asserted test: it splits a
+  4-node cluster, verifies the halves are isolated, heals, and verifies
+  convergence. HyParView gained a guarded test-support `block_peers/1` /
+  `unblock_peers/0` seam to hold a partition (`disconnect_node` alone
+  self-heals via passive promotion); the blocked set defaults empty, so it is
+  inert in normal operation.
 - Config-driven seeding: `contact_nodes` now auto-joins the listed seeds at
   boot (`mycelium_bootstrap`), retrying every `contact_retry_ms` (default 5000)
   until the node is in the overlay, with no manual `mycelium:join/1`. The

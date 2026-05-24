@@ -42,11 +42,8 @@ all() ->
         "" ->
             {skip, "MYCELIUM_CT_SOAK is empty"};
         _ ->
-            %% partition_and_heal and the cross-active-view bang case
-            %% live below as future-work scaffolding; they uncover
-            %% HyParView passive-promotion timing gaps that belong in
-            %% a dedicated stabilisation effort.
-            [broadcast_burst]
+            %% cross_active_view_bang remains future-work scaffolding.
+            [broadcast_burst, partition_and_heal]
     end.
 
 init_per_suite(Config) ->
@@ -191,11 +188,14 @@ broadcast_burst(Config) ->
     end.
 
 partition_and_heal(Config) ->
+    %% active_size 4 (>= the 3 other nodes) so the view never fills and
+    %% HyParView never evicts an intra-pair link during the merge churn; the
+    %% two halves then stay connected pairs across the cut.
     [PA, PB, PC, PD] = [
         start_peer(
             "p" ++ integer_to_list(I),
             Config,
-            #{active_size => 3}
+            #{active_size => 4}
         )
      || I <- lists:seq(1, 4)
     ],
@@ -203,13 +203,22 @@ partition_and_heal(Config) ->
     {Pb, NodeB, _, _} = PB,
     {Pc, NodeC, _, _} = PC,
     {Pd, NodeD, _, _} = PD,
+    %% Build two connected pairs {A-B} and {C-D}, then merge into one
+    %% cluster (C->A). A star (all join A) would leave B,C,D linked only to
+    %% A, so cutting A would split into singletons rather than two pairs.
     ok = peer:call(Pb, mycelium, join, [NodeA]),
+    ok = peer:call(Pd, mycelium, join, [NodeC]),
+    wait_until(fun() -> in_view(Pa, [NodeB]) andalso in_view(Pc, [NodeD]) end, 15000),
     ok = peer:call(Pc, mycelium, join, [NodeA]),
-    ok = peer:call(Pd, mycelium, join, [NodeA]),
-    timer:sleep(2000),
-    %% Bisect: {A,B} | {C,D}. Force the partition by disconnecting the
-    %% relevant dist pairs from each side. Use a generous timeout in
-    %% case the QUIC teardown stalls under load.
+    wait_until(fun() -> in_view(Pa, [NodeC]) orelse in_view(Pc, [NodeA]) end, 15000),
+
+    %% Hold a real partition {A,B} | {C,D}: block across the cut so HyParView
+    %% will not re-dial, then drop the dist links. (disconnect_node alone
+    %% self-heals via passive promotion.)
+    ok = peer:call(Pa, mycelium_hyparview, block_peers, [[NodeC, NodeD]]),
+    ok = peer:call(Pb, mycelium_hyparview, block_peers, [[NodeC, NodeD]]),
+    ok = peer:call(Pc, mycelium_hyparview, block_peers, [[NodeA, NodeB]]),
+    ok = peer:call(Pd, mycelium_hyparview, block_peers, [[NodeA, NodeB]]),
     Disconnect = fun(P, Targets) ->
         [peer:call(P, erlang, disconnect_node, [N], 15000) || N <- Targets]
     end,
@@ -217,36 +226,76 @@ partition_and_heal(Config) ->
     Disconnect(Pb, [NodeC, NodeD]),
     Disconnect(Pc, [NodeA, NodeB]),
     Disconnect(Pd, [NodeA, NodeB]),
-    timer:sleep(500),
-    %% Each side registers its own service. register_service runs in
-    %% the calling process so we spawn long-lived holders.
-    ok = peer:call(Pa, ?MODULE, register_holder, [svc_left]),
-    ok = peer:call(Pc, ?MODULE, register_holder, [svc_right]),
-    timer:sleep(1000),
-    %% Heal: every peer re-joins via the seed so HyParView weaves both
-    %% sides back together. A single C→A would leave B and D adrift.
-    ok = peer:call(Pb, mycelium, join, [NodeA]),
-    ok = peer:call(Pc, mycelium, join, [NodeA]),
-    ok = peer:call(Pd, mycelium, join, [NodeA]),
-    %% After convergence, both sides know both services.
+    %% The cut is in effect once neither half sees the other in its active
+    %% view (immediate + stable: blocked nodes cannot re-enter). We assert
+    %% the cut via active_view/0, not the lease-based members/0 (which lags
+    %% by member_ttl_ms). Intra-pair connectivity is proven end-to-end by
+    %% the within-side service propagation below (a transient drop simply
+    %% re-promotes from passive, since the pair is not blocked).
     wait_until(
         fun() ->
-            All = [Pa, Pb, Pc, Pd],
-            lists:all(
-                fun(P) ->
-                    L = peer:call(P, mycelium, lookup, [svc_left]),
-                    R = peer:call(P, mycelium, lookup, [svc_right]),
-                    is_known(L) andalso is_known(R)
-                end,
-                All
-            )
+            not_in_view(Pa, [NodeC, NodeD]) andalso
+                not_in_view(Pc, [NodeA, NodeB])
         end,
         15000
+    ),
+
+    %% Each side registers its own service; it propagates within the side.
+    ok = peer:call(Pa, ?MODULE, register_holder, [svc_left]),
+    ok = peer:call(Pc, ?MODULE, register_holder, [svc_right]),
+    wait_until(
+        fun() -> visible(Pb, svc_left) andalso visible(Pd, svc_right) end,
+        15000
+    ),
+    %% Hold the partition: neither service may cross the cut.
+    timer:sleep(1000),
+    ?assert(
+        not visible(Pc, svc_left) andalso not visible(Pd, svc_left),
+        "svc_left leaked across the partition to the right side"
+    ),
+    ?assert(
+        not visible(Pa, svc_right) andalso not visible(Pb, svc_right),
+        "svc_right leaked across the partition to the left side"
+    ),
+
+    %% Heal: clear the blocks, then re-join ACROSS the former cut so every
+    %% node gets a fresh peer_up with a service holder. The registry
+    %% full-syncs on peer_up; the surviving intra-pair links (A-B, C-D) get
+    %% no new peer_up, and a service learned via full-sync is not
+    %% re-broadcast, so each inner node needs its own cross-cut join:
+    %%   C<->A : A learns svc_right, C learns svc_left
+    %%   B<->C : B learns both from C
+    %%   D<->A : D learns both from A
+    [ok = peer:call(P, mycelium_hyparview, unblock_peers, []) || P <- [Pa, Pb, Pc, Pd]],
+    ok = peer:call(Pc, mycelium, join, [NodeA]),
+    ok = peer:call(Pb, mycelium, join, [NodeC]),
+    ok = peer:call(Pd, mycelium, join, [NodeA]),
+    wait_until(
+        fun() ->
+            lists:all(
+                fun(P) -> visible(P, svc_left) andalso visible(P, svc_right) end,
+                [Pa, Pb, Pc, Pd]
+            )
+        end,
+        20000
     ).
 
-is_known({ok, _}) -> true;
-is_known({ok, _, _}) -> true;
-is_known(_) -> false.
+%% A service is visible from P when its lookup returns at least one entry.
+visible(P, Svc) ->
+    case peer:call(P, mycelium, lookup, [Svc]) of
+        {ok, [_ | _]} -> true;
+        _ -> false
+    end.
+
+%% Every node in Nodes is in P's HyParView active view.
+in_view(P, Nodes) ->
+    AV = peer:call(P, mycelium, active_view, []),
+    lists:all(fun(N) -> lists:member(N, AV) end, Nodes).
+
+%% No node in Nodes is in P's HyParView active view.
+not_in_view(P, Nodes) ->
+    AV = peer:call(P, mycelium, active_view, []),
+    lists:all(fun(N) -> not lists:member(N, AV) end, Nodes).
 
 cross_active_view_bang(Config) ->
     N = 3,
@@ -342,15 +391,23 @@ is_ok_echo(_) -> false.
 register_holder(Name) ->
     case whereis(soak_holder_key(Name)) of
         undefined ->
+            Parent = self(),
+            %% The HOLDER registers the service (register_service registers the
+            %% CALLER), so the registration outlives this peer:call worker.
             Pid = spawn(fun() ->
+                ok = mycelium:register_service(Name),
+                Parent ! {holder_registered, Name},
                 receive
                     _ -> ok
                 end
             end),
             register(soak_holder_key(Name), Pid),
-            ok = mycelium:register_service(Name);
+            receive
+                {holder_registered, Name} -> ok
+            after 5000 -> error(holder_register_timeout)
+            end;
         _ ->
-            ok = mycelium:register_service(Name)
+            ok
     end,
     ok.
 
@@ -468,7 +525,19 @@ start_peer(Suffix, Config, Opts) ->
             quote(DiscoveryDir),
             "-mycelium",
             "active_size",
-            integer_to_list(ActiveSize)
+            integer_to_list(ActiveSize),
+            %% Short lease timings so the shard's members/0 set (and any
+            %% membership-driven convergence) reacts quickly. Split assertions
+            %% use active_view/0 + registry, which are immediate regardless.
+            "-mycelium",
+            "member_heartbeat_ms",
+            "500",
+            "-mycelium",
+            "member_ttl_ms",
+            "2000",
+            "-mycelium",
+            "member_skew_ms",
+            "60000"
         ] ++ AuthArgs,
     PaArgs = lists:flatmap(fun(P) -> ["-pa", P] end, code:get_path()),
     Args = PaArgs ++ BaseArgs,
