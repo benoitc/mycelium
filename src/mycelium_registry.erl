@@ -182,10 +182,13 @@ handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
 handle_cast({merge_remote, DeltaMap}, State) ->
-    %% Update HLC from remote dots
-    mycelium_ormap:absorb_clock(DeltaMap),
-    %% Merge into remote OR-Map
-    Remote = mycelium_ormap:merge(State#state.remote, DeltaMap),
+    %% Validate the wrapper (dots/HLCs) and the service-entry leaf before
+    %% absorbing the clock and merging, so a malformed peer delta cannot
+    %% crash this gen_server or the shared mycelium_hlc server. Only valid
+    %% entries are absorbed/merged; the rest are dropped.
+    {Remote, _Accepted} = mycelium_crdt_wire:ingest(
+        State#state.remote, DeltaMap, fun valid_service_entry/1
+    ),
     {noreply, State#state{remote = Remote}};
 handle_cast({remove_node, Node}, State) ->
     %% Remove all entries from the specified node
@@ -235,6 +238,10 @@ terminate(_Reason, _State) ->
 %% the key's node is the originating node.
 replica_merge_delta(_Name, Delta) ->
     merge_remote(Delta),
+    %% Emit events only for entries that pass validation (the same set the
+    %% merge accepts); iterating the raw Delta would crash on a malformed
+    %% entry that does not match {value,_,_} | {tombstone,_}.
+    Accepted = mycelium_crdt_wire:accept(Delta, fun valid_service_entry/1),
     maps:foreach(
         fun
             ({Name, Node}, {value, _Entry, _Dots}) ->
@@ -243,7 +250,7 @@ replica_merge_delta(_Name, Delta) ->
                 mycelium_router:invalidate_route(Name),
                 mycelium_service_events:notify({service_unregistered, Name, Node})
         end,
-        Delta
+        Accepted
     ),
     ok.
 
@@ -268,6 +275,17 @@ replica_remove_node(_Name, Node) ->
 %%====================================================================
 %% Internal Functions
 %%====================================================================
+
+%% Leaf validator for gossiped service entries: a well-formed
+%% #service_entry{}. Used by mycelium_crdt_wire to reject malformed peer
+%% values before they reach the OR-Map merge.
+valid_service_entry(#service_entry{name = N, pid = P, node = Nd, meta = M}) when
+    (is_atom(N) orelse is_binary(N)) andalso
+        is_pid(P) andalso is_atom(Nd) andalso is_map(M)
+->
+    true;
+valid_service_entry(_) ->
+    false.
 
 %% Common registration logic for both register and register_pid
 do_register(Name, Pid, Meta, State) ->

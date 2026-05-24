@@ -38,7 +38,8 @@
     test_via_gen_server/1,
     %% Service proxy event wiring
     test_service_proxy_reaps_on_remote_service_down/1,
-    test_service_proxy_ignores_unrelated_service_down/1
+    test_service_proxy_ignores_unrelated_service_down/1,
+    malformed_gossip_does_not_crash/1
 ]).
 
 %%====================================================================
@@ -73,7 +74,8 @@ groups() ->
             test_send_not_found,
             test_via_gen_server,
             test_service_proxy_reaps_on_remote_service_down,
-            test_service_proxy_ignores_unrelated_service_down
+            test_service_proxy_ignores_unrelated_service_down,
+            malformed_gossip_does_not_crash
         ]}
     ].
 
@@ -96,6 +98,31 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     application:stop(mycelium),
     ok.
+
+%% Malformed peer gossip must never crash the registry or the shared HLC
+%% server; bad entries are dropped and well-formed registrations still work.
+malformed_gossip_does_not_crash(_Config) ->
+    H = mycelium_hlc:now(),
+    GoodDots = #{{'peer@h', H} => true},
+    GoodEntry = #service_entry{name = svc, pid = self(), node = node(), meta = #{}},
+    Bad = [
+        not_a_map,
+        #{{a, n} => {value, GoodEntry, not_a_map}},
+        #{{b, n} => {value, GoodEntry, #{}}},
+        #{{c, n} => {value, GoodEntry, #{bad => true}}},
+        #{{d, n} => {tombstone, not_a_timestamp}},
+        #{{e, n} => garbage},
+        %% wrapper ok, leaf is not a #service_entry{}
+        #{{f, n} => {value, not_a_service_entry, GoodDots}}
+    ],
+    [ok = mycelium_registry:replica_merge_delta(mycelium_registry_replica, B) || B <- Bad],
+    ok = mycelium_registry:replica_apply_full_sync(mycelium_registry_replica, not_a_map),
+    _ = sys:get_state(mycelium_registry),
+    ?assert(is_process_alive(whereis(mycelium_registry))),
+    ?assert(is_process_alive(whereis(mycelium_hlc))),
+    %% A well-formed registration still works.
+    ok = mycelium:register_service(good_svc, #{}),
+    ?assertMatch({ok, [_ | _]}, mycelium:lookup(good_svc)).
 
 %%====================================================================
 %% Test Cases
