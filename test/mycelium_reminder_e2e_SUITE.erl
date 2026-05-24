@@ -21,7 +21,8 @@ suite() ->
 all() ->
     [
         steady_state_fires_exactly_once,
-        reminder_fires_from_survivor_after_owner_dies
+        reminder_fires_from_survivor_after_owner_dies,
+        reminder_survives_full_cluster_restart
     ].
 
 init_per_suite(Config) ->
@@ -105,6 +106,42 @@ reminder_fires_from_survivor_after_owner_dies(Config) ->
     NewOwner = peer:call(SetPeer, mycelium, place, [K]),
     ?assert(lists:member(NewOwner, SurvNodes)),
     ?assertEqual([NewOwner], firing_nodes(Survivors, K)),
+    ok.
+
+%% The persistence proof: a reminder set before a FULL-cluster restart
+%% (every node down, then up with the same data dirs) is recovered from
+%% disk and still fires. Nothing to re-sync from peers - all were down.
+reminder_survives_full_cluster_restart(Config) ->
+    Started = [start_peer(S, Config) || S <- ["a", "b", "c"]],
+    Peers0 = [{Pid, Node} || {Pid, Node, _Tok, _} <- Started],
+    Tokens = [Tok || {_Pid, _Node, Tok, _} <- Started],
+    form_cluster(Peers0),
+    Nodes0 = [N || {_P, N} <- Peers0],
+    wait_until(fun() -> all_members_are(Peers0, Nodes0) end, 20000),
+
+    %% Set a reminder far enough out that it is still pending when the
+    %% cluster goes down and only comes due after it is back and converged.
+    K = <<"persist-key">>,
+    {SetPeer, _} = hd(Peers0),
+    FireAt = now_on(SetPeer) + 20000,
+    ok = peer:call(SetPeer, mycelium, remind, [K, FireAt, wakeup]),
+    %% remind/3 fsyncs on the set node before returning; let it gossip too.
+    timer:sleep(1000),
+
+    %% Full-cluster restart: stop every node, then bring them back with the
+    %% same identities + data dirs.
+    [ ok = peer:stop(Pid) || {Pid, _N} <- Peers0 ],
+    timer:sleep(1000),
+    Peers1 = [restart_peer(Tok, Config) || Tok <- Tokens],
+    %% Probe every node before the ring reforms, so no fire is missed.
+    [ ok = peer:call(Pid, ?MODULE, start_probe, []) || {Pid, _N} <- Peers1 ],
+    form_cluster(Peers1),
+    Nodes1 = [N || {_P, N} <- Peers1],
+    wait_until(fun() -> all_members_are(Peers1, Nodes1) end, 20000),
+
+    %% The reminder, recovered from disk, still fires after the restart.
+    wait_until(fun() -> total_fires(Peers1, K) >= 1 end, 30000),
+    ?assert(total_fires(Peers1, K) >= 1),
     ok.
 
 %%====================================================================
@@ -191,18 +228,29 @@ all_members_are(Peers, Expected) ->
 %%====================================================================
 
 start_peer(Suffix, Config) ->
-    TcDir = ?config(tc_dir, Config),
-    NodeDir = filename:join(TcDir, Suffix),
-    ok = filelib:ensure_dir(filename:join(NodeDir, "dummy")),
-    QuicDir = filename:join(NodeDir, "data/quic"),
-    KeysDir = filename:join(NodeDir, "data/keys"),
-    ok = filelib:ensure_dir(filename:join(QuicDir, "dummy")),
-    ok = filelib:ensure_dir(filename:join(KeysDir, "dummy")),
-    DiscoveryDir = ?config(discovery_dir, Config),
-    BasePort = ?config(base_port, Config),
-    Port = next_port(BasePort),
+    Port = next_port(?config(base_port, Config)),
     Name = list_to_atom("myc_" ++ Suffix ++ "_"
                         ++ integer_to_list(erlang:unique_integer([positive]))),
+    {Pid, Node} = spawn_peer(Suffix, Name, Port, Config),
+    %% The 3rd element is a restart token: the same Suffix/Name/Port reuses
+    %% the node identity and (per-node) data dirs, so a restarted node
+    %% recovers its persisted reminders from disk.
+    {Pid, Node, {Suffix, Name, Port}, Config}.
+
+%% Restart a peer with the SAME identity and data dirs (full-restart tests).
+restart_peer({Suffix, Name, Port}, Config) ->
+    spawn_peer(Suffix, Name, Port, Config).
+
+spawn_peer(Suffix, Name, Port, Config) ->
+    TcDir = ?config(tc_dir, Config),
+    NodeDir = filename:join(TcDir, Suffix),
+    QuicDir = filename:join(NodeDir, "data/quic"),
+    KeysDir = filename:join(NodeDir, "data/keys"),
+    RemindersDir = filename:join(NodeDir, "data/reminders"),
+    ok = filelib:ensure_dir(filename:join(QuicDir, "dummy")),
+    ok = filelib:ensure_dir(filename:join(KeysDir, "dummy")),
+    ok = filelib:ensure_dir(filename:join(RemindersDir, "dummy")),
+    DiscoveryDir = ?config(discovery_dir, Config),
     BaseArgs = [
         "-proto_dist", "mycelium",
         "-epmd_module", "mycelium_epmd",
@@ -210,8 +258,11 @@ start_peer(Suffix, Config) ->
         "-mycelium_dist_port",     integer_to_list(Port),
         "-mycelium_dist_cert_dir", QuicDir,
         "-setcookie", "mycelium_ct",
-        "-mycelium", "auth_key_dir",  quote(KeysDir),
-        "-mycelium", "discovery_dir", quote(DiscoveryDir),
+        "-mycelium", "auth_key_dir",     quote(KeysDir),
+        "-mycelium", "discovery_dir",    quote(DiscoveryDir),
+        %% Per-node reminder store, so peers do not collide on one dir and a
+        %% restart recovers this node's reminders.
+        "-mycelium", "reminder_data_dir", quote(RemindersDir),
         "-mycelium", "active_size",   "5",
         %% Short leases so a dead node leaves the ring quickly, and a
         %% brisk scan so the survivor re-arms promptly.
@@ -231,7 +282,7 @@ start_peer(Suffix, Config) ->
     }),
     {ok, _Started} = peer:call(Pid, application, ensure_all_started, [mycelium]),
     put(?MODULE, [Pid | case get(?MODULE) of undefined -> []; L -> L end]),
-    {Pid, Node, NodeDir, Config}.
+    {Pid, Node}.
 
 quote(S) ->
     "\"" ++ S ++ "\"".

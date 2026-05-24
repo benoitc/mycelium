@@ -51,6 +51,11 @@ init_per_testcase(Case, Config) ->
         _                       -> 3600000
     end,
     application:set_env(mycelium, reminder_tombstone_ttl_ms, TombTtl),
+    %% Reminders persist by default; give each case a fresh store dir so a
+    %% prior case's reminders are never reloaded.
+    Dir = filename:join(?config(priv_dir, Config),
+                        "reminders_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    application:set_env(mycelium, reminder_data_dir, Dir),
     {ok, _} = application:ensure_all_started(mycelium),
     ok = mycelium:subscribe_reminders(),
     Config.
