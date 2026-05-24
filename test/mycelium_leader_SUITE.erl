@@ -23,7 +23,8 @@
     lower_remote_atom_revokes_then_reelects/1,
     priority_beats_lower_atom/1,
     fence_monotonic_across_relead/1,
-    merge_fence_forces_higher_mint/1
+    merge_fence_forces_higher_mint/1,
+    malformed_gossip_does_not_crash/1
 ]).
 
 all() ->
@@ -35,7 +36,8 @@ all() ->
         lower_remote_atom_revokes_then_reelects,
         priority_beats_lower_atom,
         fence_monotonic_across_relead,
-        merge_fence_forces_higher_mint
+        merge_fence_forces_higher_mint,
+        malformed_gossip_does_not_crash
     ].
 
 init_per_testcase(_Case, Config) ->
@@ -49,6 +51,39 @@ end_per_testcase(_Case, _Config) ->
 %%====================================================================
 %% Test cases
 %%====================================================================
+
+%% Malformed peer gossip (candidate deltas, fence custom broadcasts, and
+%% full-sync payloads) must never crash the leader or the shared HLC server;
+%% bad entries are dropped and a well-formed election still works.
+malformed_gossip_does_not_crash(_Config) ->
+    H = mycelium_hlc:now(),
+    GoodDots = #{{'peer@h', H} => true},
+    GoodCand = {self(), 0},
+    Bad = [
+        not_a_map,
+        #{{a, n} => {value, GoodCand, not_a_map}},
+        #{{b, n} => {value, GoodCand, #{}}},
+        #{{c, n} => {value, GoodCand, #{bad => true}}},
+        #{{d, n} => {tombstone, not_a_timestamp}},
+        #{{e, n} => garbage},
+        %% wrapper ok, leaf is not a {Pid, Priority}
+        #{{f, n} => {value, not_a_candidate, GoodDots}}
+    ],
+    [mycelium_leader:replica_merge_delta(mycelium_leader_replica, B) || B <- Bad],
+    %% Fence custom broadcasts: a non-timestamp fence and a non-tuple payload.
+    mycelium_leader:replica_merge_custom(mycelium_leader_replica, {job, not_a_timestamp}),
+    mycelium_leader:replica_merge_custom(mycelium_leader_replica, garbage),
+    %% Full-sync: bad candidate map and bad fence map.
+    mycelium_leader:replica_apply_full_sync(mycelium_leader_replica, {not_a_map, not_a_map}),
+    mycelium_leader:replica_apply_full_sync(
+        mycelium_leader_replica,
+        {#{{g, n} => {value, not_a_candidate, GoodDots}}, #{job => not_a_timestamp}}
+    ),
+    _ = sys:get_state(mycelium_leader),
+    ?assert(is_process_alive(whereis(mycelium_leader))),
+    ?assert(is_process_alive(whereis(mycelium_hlc))),
+    %% A well-formed election still works.
+    ?assertMatch({ok, {leader, _}}, mycelium_leader:lead(goodjob)).
 
 sole_candidate_becomes_leader(_Config) ->
     {ok, {leader, F}} = mycelium_leader:lead(job1),

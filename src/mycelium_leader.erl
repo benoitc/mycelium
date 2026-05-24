@@ -24,6 +24,8 @@
 -behaviour(gen_server).
 -behaviour(mycelium_replica).
 
+-include_lib("hlc/include/hlc.hrl").
+
 %% Registered name of this feature's replication instance.
 -define(REPLICA, mycelium_leader_replica).
 
@@ -158,7 +160,10 @@ replica_merge_delta(_Inst, Delta) ->
     merge_remote(Delta).
 
 replica_merge_custom(_Inst, {Name, Fence}) ->
-    merge_fence(Name, Fence).
+    merge_fence(Name, Fence);
+replica_merge_custom(_Inst, _Other) ->
+    %% Malformed custom payload (not a {Name, Fence} tuple): drop it.
+    ok.
 
 replica_apply_full_sync(_Inst, {Cands, Fences}) ->
     apply_full_sync(Cands, Fences).
@@ -250,17 +255,28 @@ handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
 handle_cast({merge_remote, Delta}, State) ->
-    mycelium_ormap:absorb_clock(Delta),
-    Cands = mycelium_ormap:merge(State#state.cands, Delta),
+    %% Validate the wrapper + candidate leaf before absorb/merge so a
+    %% malformed peer delta cannot crash this gen_server or mycelium_hlc.
+    {Cands, _Acc} = mycelium_crdt_wire:ingest(
+        State#state.cands, Delta, fun valid_candidate/1
+    ),
     {noreply, recompute_local(State#state{cands = Cands})};
 handle_cast({merge_fence, Name, F}, State) ->
-    mycelium_hlc:update(F),
-    Fences = raise_fence(State#state.fences, Name, F),
-    {noreply, State#state{fences = Fences}};
+    %% A fence is an HLC timestamp; reject anything else before it reaches
+    %% mycelium_hlc:update/compare.
+    case valid_fence(F) of
+        true ->
+            mycelium_hlc:update(F),
+            Fences = raise_fence(State#state.fences, Name, F),
+            {noreply, State#state{fences = Fences}};
+        false ->
+            {noreply, State}
+    end;
 handle_cast({apply_full_sync, RemoteCands, RemoteFences}, State) ->
-    mycelium_ormap:absorb_clock(RemoteCands),
-    Cands = mycelium_ormap:merge(State#state.cands, RemoteCands),
-    Fences = merge_fences(State#state.fences, RemoteFences),
+    {Cands, _Acc} = mycelium_crdt_wire:ingest(
+        State#state.cands, RemoteCands, fun valid_candidate/1
+    ),
+    Fences = merge_fences(State#state.fences, valid_fences(RemoteFences)),
     {noreply, recompute_local(State#state{cands = Cands, fences = Fences})};
 handle_cast({remove_node, Node}, State) ->
     Cands = maps:filter(
@@ -407,6 +423,23 @@ raise_fence(Fences, Name, F) ->
 
 merge_fences(F1, F2) ->
     maps:fold(fun(Name, F, Acc) -> raise_fence(Acc, Name, F) end, F1, F2).
+
+%% Gossip-ingest validators (used to reject malformed peer payloads before
+%% they reach the OR-Map merge or the shared mycelium_hlc server).
+
+%% A candidate OR-Map leaf value: {Pid, Priority}.
+valid_candidate({Pid, Prio}) when is_pid(Pid), is_integer(Prio) -> true;
+valid_candidate(_) -> false.
+
+%% A fence is an HLC timestamp.
+valid_fence(#timestamp{}) -> true;
+valid_fence(_) -> false.
+
+%% Keep only well-formed fences from a peer's fence map (non-map -> empty).
+valid_fences(Fences) when is_map(Fences) ->
+    maps:filter(fun(_Name, F) -> valid_fence(F) end, Fences);
+valid_fences(_) ->
+    #{}.
 
 find_name_by_ref(Ref, Local) ->
     case [N || {N, {_P, R, _Pr}} <- maps:to_list(Local), R =:= Ref] of
