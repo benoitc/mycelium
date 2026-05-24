@@ -37,8 +37,8 @@
 -export([start_link/0]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/1, replica_apply_full_sync/1,
-         replica_full_sync_snapshot/0, replica_remove_node/1]).
+-export([replica_merge_delta/2, replica_apply_full_sync/2,
+         replica_full_sync_snapshot/1, replica_remove_node/2]).
 
 %% Internal (invoked by the replica callbacks; owner/2 also used by tests)
 -export([merge_delta/1, apply_full_sync/1, snapshot/0, owner/2]).
@@ -127,18 +127,18 @@ start_link() ->
 %% mycelium_replica callbacks (run in the replica process)
 %%====================================================================
 
-replica_merge_delta(Delta) ->
+replica_merge_delta(_Name, Delta) ->
     merge_delta(Delta).
 
-replica_apply_full_sync(Snapshot) ->
+replica_apply_full_sync(_Name, Snapshot) ->
     apply_full_sync(Snapshot).
 
-replica_full_sync_snapshot() ->
+replica_full_sync_snapshot(_Name) ->
     snapshot().
 
 %% Membership is lease-based; a peer leaving the active view is not
 %% cluster death, so do nothing here (the lease expiry handles it).
-replica_remove_node(_Node) ->
+replica_remove_node(_Name, _Node) ->
     ok.
 
 -spec merge_delta(mycelium_ormap:ormap()) -> ok.

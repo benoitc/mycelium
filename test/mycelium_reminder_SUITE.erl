@@ -141,14 +141,14 @@ stale_add_does_not_resurrect(_Config) ->
     FireAt = now_ms() + 150,
     Val = {FireAt, boo, H},
     Delta = #{rk => {value, Val, #{{'ghost@127.0.0.1', H} => true}}},
-    mycelium_reminder:replica_merge_delta(Delta),
+    mycelium_reminder:replica_merge_delta(mycelium_reminder_replica, Delta),
     receive
         {mycelium_reminder, rk, boo, _} -> ok
     after 2000 ->
         ct:fail(no_fire)
     end,
     %% Replay the stale add; the tombstone written at fire time wins.
-    mycelium_reminder:replica_merge_delta(Delta),
+    mycelium_reminder:replica_merge_delta(mycelium_reminder_replica, Delta),
     receive
         {mycelium_reminder, rk, boo, _} -> ct:fail(resurrected)
     after 800 ->
@@ -169,7 +169,7 @@ malformed_gossip_does_not_crash(_Config) ->
         #{kd => {value, GoodVal, #{bad_key => true}}}, %% malformed dot key
         #{ke => {tombstone, not_a_timestamp}}          %% malformed tombstone
     ],
-    [ mycelium_reminder:replica_merge_delta(D) || D <- Bad ],
+    [ mycelium_reminder:replica_merge_delta(mycelium_reminder_replica, D) || D <- Bad ],
     %% Force the casts to be processed, then assert both servers survived.
     _ = sys:get_state(mycelium_reminder),
     ?assert(is_process_alive(whereis(mycelium_reminder))),

@@ -37,9 +37,9 @@
          get_state/0, high_water/1]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/1, replica_merge_custom/1,
-         replica_apply_full_sync/1, replica_full_sync_snapshot/0,
-         replica_remove_node/1]).
+-export([replica_merge_delta/2, replica_merge_custom/2,
+         replica_apply_full_sync/2, replica_full_sync_snapshot/1,
+         replica_remove_node/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -136,23 +136,23 @@ high_water(Name) ->
 %% mycelium_replica callbacks
 %%====================================================================
 
-replica_merge_delta(Delta) ->
+replica_merge_delta(_Inst, Delta) ->
     merge_remote(Delta).
 
-replica_merge_custom({Name, Fence}) ->
+replica_merge_custom(_Inst, {Name, Fence}) ->
     merge_fence(Name, Fence).
 
-replica_apply_full_sync({Cands, Fences}) ->
+replica_apply_full_sync(_Inst, {Cands, Fences}) ->
     apply_full_sync(Cands, Fences).
 
-replica_full_sync_snapshot() ->
+replica_full_sync_snapshot(_Inst) ->
     {Cands, Fences} = get_state(),
     case mycelium_ormap:is_empty(Cands) andalso map_size(Fences) =:= 0 of
         true  -> empty;
         false -> {sync, {Cands, Fences}}
     end.
 
-replica_remove_node(Node) ->
+replica_remove_node(_Inst, Node) ->
     remove_node(Node).
 
 %%====================================================================

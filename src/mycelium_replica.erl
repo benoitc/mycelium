@@ -33,24 +33,29 @@
 
 -define(SYNC_TAG, '$mycelium_replica').
 
+%% Every callback receives the instance `Name' as its first argument, so
+%% one callback module can back several independently-named instances
+%% (e.g. many `mycelium_map' instances share the `mycelium_map' module).
+
 %% Merge an incoming delta (one or more {Key, entry}) into the owner's
 %% map and run its side effects.
--callback replica_merge_delta(Delta :: mycelium_ormap:ormap()) -> ok.
+-callback replica_merge_delta(Name :: atom(), Delta :: mycelium_ormap:ormap()) -> ok.
 
 %% Apply a full snapshot received from a peer on connect.
--callback replica_apply_full_sync(Snapshot :: term()) -> ok.
+-callback replica_apply_full_sync(Name :: atom(), Snapshot :: term()) -> ok.
 
 %% Produce a snapshot to send to a newly connected peer, or `empty'
 %% when there is nothing to send.
--callback replica_full_sync_snapshot() -> {sync, Snapshot :: term()} | empty.
+-callback replica_full_sync_snapshot(Name :: atom()) ->
+    {sync, Snapshot :: term()} | empty.
 
 %% Drop all entries owned by a node that left or failed.
--callback replica_remove_node(node()) -> ok.
+-callback replica_remove_node(Name :: atom(), node()) -> ok.
 
 %% Merge a feature-specific custom broadcast (optional).
--callback replica_merge_custom(Payload :: term()) -> ok.
+-callback replica_merge_custom(Name :: atom(), Payload :: term()) -> ok.
 
--optional_callbacks([replica_merge_custom/1]).
+-optional_callbacks([replica_merge_custom/2]).
 
 -record(state, {
     name  :: atom(),
@@ -93,6 +98,12 @@ init(#{name := Name, callback := Cb}) ->
     %% us, so a one-shot subscribe would be silently dropped).
     Watch = mycelium_source_monitor:start(
               [mycelium_plumtree, mycelium_hyparview_events]),
+    %% Seed from the current active view and pull existing state. peer_up
+    %% only fires for FUTURE joins, so an instance started after the cluster
+    %% has already formed (e.g. a mycelium_map created at runtime) would
+    %% otherwise sit at peers=[] and never sync. Deferred via a self-message
+    %% so init/1 stays non-blocking.
+    self() ! seed_initial_sync,
     {ok, #state{name = Name, cb = Cb, watch = Watch}}.
 
 handle_call(_Request, _From, State) ->
@@ -121,7 +132,7 @@ handle_cast(_Msg, State) ->
 %% Plumtree delivery scoped to this instance (tag =:= our name).
 handle_info({plumtree_broadcast, {MsgTag, Payload}}, #state{name = Name} = State)
   when MsgTag =:= Name ->
-    handle_payload(Payload, State);
+    handle_payload(Payload, Name, State);
 
 %% Plumtree delivery for another instance.
 handle_info({plumtree_broadcast, _Other}, State) ->
@@ -137,17 +148,22 @@ handle_info({mycelium_event, {peer_up, Node}}, #state{peers = Peers} = State) ->
     end;
 
 handle_info({mycelium_event, {peer_down, Node, _Reason}},
-            #state{cb = Cb, peers = Peers} = State) ->
-    Cb:replica_remove_node(Node),
+            #state{name = Name, cb = Cb, peers = Peers} = State) ->
+    Cb:replica_remove_node(Name, Node),
     {noreply, State#state{peers = lists:delete(Node, Peers)}};
 
 handle_info({mycelium_event, _Other}, State) ->
     {noreply, State};
 
+%% Seed peers from the current active view and pull their state (see init/1).
+handle_info(seed_initial_sync, #state{peers = Peers} = State) ->
+    Seeded = lists:usort(Peers ++ active_view_peers()),
+    {noreply, request_sync_from_peers(State#state{peers = Seeded})};
+
 handle_info({do_full_sync, Node}, #state{name = Name, cb = Cb, peers = Peers} = State) ->
     case lists:member(Node, Peers) of
         true ->
-            case Cb:replica_full_sync_snapshot() of
+            case Cb:replica_full_sync_snapshot(Name) of
                 empty        -> ok;
                 {sync, Snap} -> send_to_peer(Name, Node, {full_sync, node(), Snap})
             end;
@@ -156,14 +172,15 @@ handle_info({do_full_sync, Node}, #state{name = Name, cb = Cb, peers = Peers} = 
     end,
     {noreply, State};
 
-handle_info({?SYNC_TAG, {full_sync, _FromNode, Snapshot}}, #state{cb = Cb} = State) ->
-    Cb:replica_apply_full_sync(Snapshot),
+handle_info({?SYNC_TAG, {full_sync, _FromNode, Snapshot}},
+            #state{name = Name, cb = Cb} = State) ->
+    Cb:replica_apply_full_sync(Name, Snapshot),
     {noreply, State};
 
 %% A peer that just re-subscribed asks us to push our state to it.
 handle_info({?SYNC_TAG, {request_sync, FromNode}},
             #state{name = Name, cb = Cb} = State) ->
-    case Cb:replica_full_sync_snapshot() of
+    case Cb:replica_full_sync_snapshot(Name) of
         empty        -> ok;
         {sync, Snap} -> send_to_peer(Name, FromNode, {full_sync, node(), Snap})
     end,
@@ -198,20 +215,30 @@ terminate(_Reason, _State) ->
 %% Internal Functions
 %%====================================================================
 
-handle_payload({delta, _FromNode, Delta}, #state{cb = Cb} = State) ->
-    Cb:replica_merge_delta(Delta),
+handle_payload({delta, _FromNode, Delta}, Name, #state{cb = Cb} = State) ->
+    Cb:replica_merge_delta(Name, Delta),
     {noreply, State};
-handle_payload({custom, _FromNode, Payload}, #state{cb = Cb} = State) ->
-    case erlang:function_exported(Cb, replica_merge_custom, 1) of
-        true  -> Cb:replica_merge_custom(Payload);
+handle_payload({custom, _FromNode, Payload}, Name, #state{cb = Cb} = State) ->
+    case erlang:function_exported(Cb, replica_merge_custom, 2) of
+        true  -> Cb:replica_merge_custom(Name, Payload);
         false -> ok
     end,
     {noreply, State};
-handle_payload(_Other, State) ->
+handle_payload(_Other, _Name, State) ->
     {noreply, State}.
 
 send_to_peer(Name, Node, Msg) ->
     erlang:send({Name, Node}, {?SYNC_TAG, Msg}, [noconnect]).
+
+%% Current HyParView active view (other nodes), used to seed a freshly
+%% started instance. Safe during early boot: returns [] if HyParView is
+%% not answering yet.
+active_view_peers() ->
+    try mycelium:active_view() of
+        Nodes -> [N || N <- Nodes, N =/= node()]
+    catch _:_ ->
+        []
+    end.
 
 %% Ask every known peer to push its full state to us. Used after a
 %% re-subscribe to recover anything missed while a source was down.

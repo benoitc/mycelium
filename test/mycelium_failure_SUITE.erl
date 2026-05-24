@@ -347,7 +347,7 @@ test_peer_down_removes_entries(_Config) ->
     {ok, _} = mycelium:lookup(peer_down_svc),
 
     %% Simulate peer down (the replica's peer_down callback)
-    mycelium_registry:replica_remove_node(FakeNode),
+    mycelium_registry:replica_remove_node(mycelium_registry_replica, FakeNode),
     timer:sleep(50),
 
     %% Entry should be gone

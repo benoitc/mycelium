@@ -52,8 +52,8 @@
 -export([start_link/0]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/1, replica_apply_full_sync/1,
-         replica_full_sync_snapshot/0, replica_remove_node/1]).
+-export([replica_merge_delta/2, replica_apply_full_sync/2,
+         replica_full_sync_snapshot/1, replica_remove_node/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -124,18 +124,18 @@ start_link() ->
 %% mycelium_replica callbacks (run in the replica process)
 %%====================================================================
 
-replica_merge_delta(Delta) ->
+replica_merge_delta(_Name, Delta) ->
     gen_server:cast(?SERVER, {merge_delta, Delta}).
 
-replica_apply_full_sync(Snapshot) ->
+replica_apply_full_sync(_Name, Snapshot) ->
     gen_server:cast(?SERVER, {apply_full_sync, Snapshot}).
 
-replica_full_sync_snapshot() ->
+replica_full_sync_snapshot(_Name) ->
     gen_server:call(?SERVER, snapshot).
 
 %% A reminder must survive the node that armed it, so a peer leaving the
 %% active view never drops reminders (re-ownership handles the rest).
-replica_remove_node(_Node) ->
+replica_remove_node(_Name, _Node) ->
     ok.
 
 %%====================================================================

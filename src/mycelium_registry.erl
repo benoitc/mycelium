@@ -24,8 +24,8 @@
 -export([merge_remote/1, remove_node_entries/1, remove_entry/2]).
 
 %% mycelium_replica callbacks
--export([replica_merge_delta/1, replica_apply_full_sync/1,
-         replica_full_sync_snapshot/0, replica_remove_node/1]).
+-export([replica_merge_delta/2, replica_apply_full_sync/2,
+         replica_full_sync_snapshot/1, replica_remove_node/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -236,7 +236,7 @@ terminate(_Reason, _State) ->
 %% Merge a peer's delta into the remote map, then surface the change
 %% to service-event subscribers. A broadcast delta is single-key, so
 %% the key's node is the originating node.
-replica_merge_delta(Delta) ->
+replica_merge_delta(_Name, Delta) ->
     merge_remote(Delta),
     maps:foreach(
         fun({Name, Node}, {value, _Entry, _Dots}) ->
@@ -251,18 +251,18 @@ replica_merge_delta(Delta) ->
 
 %% A full sync carries a peer's local map; merge it silently (no
 %% per-entry events, matching the prior behaviour).
-replica_apply_full_sync(RemoteORMap) ->
+replica_apply_full_sync(_Name, RemoteORMap) ->
     merge_remote(RemoteORMap),
     ok.
 
-replica_full_sync_snapshot() ->
+replica_full_sync_snapshot(_Name) ->
     ORMap = get_local_ormap(),
     case mycelium_ormap:is_empty(ORMap) of
         true  -> empty;
         false -> {sync, ORMap}
     end.
 
-replica_remove_node(Node) ->
+replica_remove_node(_Name, Node) ->
     remove_node_entries(Node),
     mycelium_router:invalidate_route(Node),
     ok.
