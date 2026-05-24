@@ -96,13 +96,28 @@ real-time deadlines.
 
 ## Durability model
 
-"Durable" here means **replicated, not persisted**. A reminder survives
-the death of the node that armed it because every node holds a replica,
-so a survivor takes over and fires it. It is held in memory only, so it
-does NOT survive a whole-cluster restart, and on a single-node cluster a
-crash of the `mycelium_reminder` process loses its reminders (there is no
-peer to recover from). If you need reminders to outlive a full restart,
-record them in your own durable store and re-issue them on boot.
+"Durable" means **replicated AND persisted to disk**. A reminder survives
+the death of the node that armed it because every node holds a replica, so a
+survivor takes over and fires it. It also survives a **full-cluster restart**:
+each node writes its reminder store to disk (a write-ahead log plus periodic
+snapshots under `reminder_data_dir`, default `data/reminders`) and recovers it
+on boot, after which the cluster re-converges. A `remind`/`cancel` is flushed
+to disk before the call returns, so an acknowledged reminder survives a crash
+of its node as long as that node's disk does. On recovery the local HLC is
+advanced past every persisted timestamp, and fire/cancel tombstones are
+persisted too, so a fired reminder is never re-fired after a restart.
+
+**The payload must be restart-safe data**: a self-contained value, not a pid,
+port, ref, or fun. This already holds without persistence, because a reminder
+is delivered on whichever node *owns* the key at fire time, not where it was
+set, so a live local reference is already meaningless cross-node. Persistence
+extends that to "after a restart": a pid/ref/fun reloaded from disk points at
+something that no longer exists. Pass an id or descriptor the handler resolves
+locally.
+
+Give each node its own `reminder_data_dir`. A write made on a non-owning node
+and not yet snapshotted there can be lost if that node dies abruptly, but the
+node that set it flushed it, so no acknowledged reminder is lost cluster-wide.
 
 Fire and cancel both leave a tombstone in the replicated store. A
 periodic sweep drops tombstones older than `reminder_tombstone_ttl_ms`
@@ -154,6 +169,7 @@ handle_info({mycelium_reminder, Key, Payload, Fence}, S) ->
 |------------------------------|---------|----------------------------------------------------|
 | `reminder_scan_ms`           | 1000    | Safety sweep that re-arms owned reminders missed, and re-arms far-future ones as they near. |
 | `reminder_tombstone_ttl_ms`  | 3600000 | Drop fire/cancel tombstones older than this. Must exceed gossip propagation plus `member_ttl_ms`. |
+| `reminder_data_dir`          | `data/reminders` | Per-node directory for the on-disk store (WAL + snapshot). |
 
 Reminders also depend on the placement settings (`ring_size` and the
 lease timings); see [sharded placement](sharded-placement.md).

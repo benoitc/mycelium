@@ -80,6 +80,16 @@ Durable reminders build on placement, so they also obey the placement keys above
 |-----|---------|------|---------|
 | `reminder_scan_ms` | `1000` | `pos_integer()` | Periodic safety sweep that re-arms reminders this node owns and missed, and re-arms far-future reminders as their fire time nears. |
 | `reminder_tombstone_ttl_ms` | `3600000` | `non_neg_integer()` | Drop fire/cancel tombstones older than this so the replicated store stays bounded. Must exceed max gossip-propagation plus `member_ttl_ms`. |
+| `reminder_data_dir` | `"data/reminders"` | `string()` | Per-node directory for the on-disk reminder store (WAL + snapshot). Reminders persist by default and recover on boot, so they survive a full-cluster restart. Give each node its own path. |
+
+## Replicated maps (`mycelium_map`)
+
+| Key | Default | Type | Purpose |
+|-----|---------|------|---------|
+| `replicated_maps` | `[]` | `[{atom(), map()}]` | Maps started on every node at boot. Each entry is `{Name, Opts}`. |
+| `mycelium_map_scan_ms` | `1000` | `pos_integer()` | Default tombstone-GC sweep cadence for maps (overridable per map). |
+| `mycelium_map_tombstone_ttl_ms` | `3600000` | `non_neg_integer()` | Default tombstone TTL for maps (overridable per map). |
+| `mycelium_map_data_dir` | `"data/maps"` | `string()` | Per-node directory for maps started with `persist => true` (WAL + snapshot). |
 
 ## Examples
 

@@ -119,12 +119,17 @@ touches live values.
 
 ## What it guarantees, and when not to use it
 
-State is **in memory plus gossip, not persisted**. A map survives the
-death of individual nodes (a survivor full-syncs a restarted one), but a
-whole-cluster restart loses its contents, and on a single-node cluster a
-crash of the owner loses the map (there is no peer to recover from). If you
-need the contents to outlive a full restart, record them in your own
-durable store and re-load on boot.
+State is **in memory plus gossip by default**. A map survives the death of
+individual nodes (a survivor full-syncs a restarted one), but a whole-cluster
+restart loses its contents unless you opt into persistence.
+
+Pass `persist => true` to back the map with a write-ahead log plus periodic
+snapshots on disk (under `mycelium_map_data_dir`, default `data/maps`, per
+node). Writes are flushed before the call returns and the map is recovered on
+boot, so a persisted map survives a full-cluster restart. Persisted values
+must be restart-safe data (no pids/ports/refs/funs, which reload as stale
+references). Host the persisted map on every node (each keeps its own copy);
+recover-then-re-converge on restart works best from a quiesced cluster.
 
 Reads are eventually consistent: there is no consensus, so after a write
 other nodes converge once the delta has propagated, and during a partition
@@ -138,7 +143,8 @@ control-plane state. It is the wrong tool for:
   [behaviour](../reference/replicated-substrate.md)),
 - high write rates or large values (single writer per map; every value is
   gossiped),
-- durable storage (in-memory + gossip),
+- durable storage beyond `persist => true` (no per-key history, no
+  cross-key transactions; it is a recovered OR-Map, not a database),
 - unbounded keyspaces (every node holds every key), or
 - linearizable reads (reads are eventually consistent).
 
@@ -153,6 +159,7 @@ Per-map options (via `new/2`, or the config-friendly subset in
 | `tombstone_ttl_ms`   | env default    | Drop tombstones older than this.                               |
 | `scan_ms`            | env default    | Tombstone-GC sweep cadence.                                    |
 | `prune_on_peer_down` | `false`        | Drop a departed node's entries on `peer_down` (presence maps). |
+| `persist`            | `false`        | Back the map with an on-disk WAL + snapshot; durable across a full-cluster restart. |
 
 App env defaults:
 
@@ -161,6 +168,7 @@ App env defaults:
 | `replicated_maps`                | `[]`    | `[{Name, Opts}]` maps started on boot.   |
 | `mycelium_map_scan_ms`           | 1000    | Default `scan_ms` for maps.              |
 | `mycelium_map_tombstone_ttl_ms`  | 3600000 | Default `tombstone_ttl_ms` for maps.     |
+| `mycelium_map_data_dir`          | `data/maps` | Per-node directory for persisted maps.|
 
 ## Related
 

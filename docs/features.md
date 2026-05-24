@@ -71,6 +71,7 @@ Stability tiers used below:
 | `subscribe_reminders/0,1`, `unsubscribe_reminders/1`      | beta      | CT: `mycelium_reminder_SUITE`                                       |
 | `{mycelium_reminder, Key, Payload, Fence}` delivery       | beta      | CT: `mycelium_reminder_SUITE` (stable fence, no double-fire)        |
 | Survivor fires after owner death                          | beta      | CT: `mycelium_reminder_e2e_SUITE` (kill owner before fire)          |
+| Disk persistence (survives full-cluster restart)          | beta      | CT: `mycelium_reminder_e2e_SUITE` (`reminder_survives_full_cluster_restart`) |
 
 ## Replicated maps
 
@@ -81,6 +82,7 @@ Stability tiers used below:
 | `subscribe_map/1,2`, `unsubscribe_map/1,2`                | beta      | CT: `mycelium_map_SUITE` (events, DOWN cleanup)                     |
 | `{mycelium_map, Name, {put \| remove, ...}}` events       | beta      | CT: `mycelium_map_SUITE`                                            |
 | Late-join full-sync from peers                            | beta      | CT: `mycelium_map_e2e_SUITE` (map created after cluster formation) |
+| Optional disk persistence (`persist => true`)             | beta      | CT: `mycelium_map_SUITE` (`persist_recovers_after_restart`), `mycelium_map_e2e_SUITE` (`persist_map_survives_full_cluster_restart`) |
 
 ## Streams
 
@@ -97,6 +99,7 @@ Stability tiers used below:
 | `mycelium_hlc` (Hybrid Logical Clock)         | supported    | CT: `mycelium_hlc_SUITE`; prop suite                            |
 | `mycelium_replica` replication behaviour      | beta         | CT: the 4 consumer suites + `mycelium_map_e2e_SUITE`            |
 | `mycelium_crdt_wire` safe gossip ingest       | supported    | EUnit: `mycelium_crdt_wire_tests`; CT: `mycelium_map_SUITE`     |
+| `mycelium_replica_log` (WAL + snapshot store) | supported    | EUnit: `mycelium_replica_log_tests`                             |
 
 ## Operations
 

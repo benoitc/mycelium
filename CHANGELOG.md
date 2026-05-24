@@ -30,6 +30,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   entirely by the QUIC TLS layer.
 
 ### Added
+- Disk persistence for durable state (`mycelium_replica_log`: a write-ahead
+  log plus periodic snapshots, recovered on boot). Durable reminders now
+  survive a FULL-cluster restart, not just an individual node's death: each
+  node persists its store and recovers it on start, and a `remind`/`cancel`
+  is flushed before it returns. `mycelium_map` gains `persist => true` for the
+  same on-disk durability (opt-in per map). Persisted payloads/values must be
+  restart-safe data (no pids/ports/refs/funs). Config: `reminder_data_dir`
+  (default `data/reminders`), `mycelium_map_data_dir` (default `data/maps`),
+  per node.
 - Replicated maps (`mycelium_map`): `mycelium:new_map/1,2`,
   `delete_map/1`, `map_put/3`, `map_remove/2`, `map_get/2`, `map_keys/1`,
   `map_to_list/1`, `subscribe_map/1,2`, `unsubscribe_map/1,2`. A named,
@@ -94,6 +103,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A `mycelium_replica` instance now seeds peers from the active view and
   pulls a full sync on start, so an instance started after the cluster has
   already formed recovers existing state instead of sitting empty.
+- Durable reminders now write to disk by default (an fsync per
+  `remind`/`cancel`) and recover on boot. Set `reminder_data_dir` per node;
+  reminder payloads must be restart-safe data.
 
 ### Fixed
 - `mycelium_ormap` merge is now commutative when two concurrent values

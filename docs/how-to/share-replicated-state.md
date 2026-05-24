@@ -109,6 +109,30 @@ above your gossip propagation time plus the membership lease:
                                     tombstone_ttl_ms => 600000}).
 ```
 
+## Persist across a full-cluster restart
+
+By default a map is in memory plus gossip, so a whole-cluster restart loses
+it. Pass `persist => true` to back it with an on-disk write-ahead log plus
+snapshots, recovered on boot:
+
+```erlang
+{ok, _} = mycelium:new_map(flags, #{persist => true}).
+```
+
+In `replicated_maps` config:
+
+```erlang
+{replicated_maps, [
+    {flags, #{persist => true}}
+]}.
+```
+
+Writes are flushed before the call returns, and each node recovers its own
+copy from disk on boot, after which the cluster re-converges. Give each node
+its own `mycelium_map_data_dir` (default `data/maps`). Persisted values must
+be restart-safe data (no pids/ports/refs/funs). Note `delete_map/1` removes
+the persisted files on that node, so a re-created map starts fresh.
+
 ## Remove and delete
 
 `map_remove/2` deletes a key cluster-wide (it converges like a put):
