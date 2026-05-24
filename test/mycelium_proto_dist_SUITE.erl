@@ -160,11 +160,12 @@ gc_skips_live_streams(Config) ->
     end, 30000),
     Tag = <<"gctest">>,
     ok = peer:call(Pb, ?MODULE, register_acceptor, [Tag]),
-    {ok, _Holder} = wait_for_persistent_stream(Pa, Tag, NodeB, 5000),
-    wait_until(fun() ->
-        peer:call(Pa, quic_dist, list_streams, [NodeB]) =/= []
-    end, 5000),
-    timer:sleep(200),
+    %% Open a tagged stream and confirm it stays LIVE. The peer's dist
+    %% controller refuses (resets) an inbound user stream that arrives
+    %% before mycelium_streams has registered as its acceptor, so opening
+    %% can race that registration on a fresh connection. Retry the whole
+    %% open-and-confirm until a stream sticks, not just the open.
+    {ok, _Holder} = wait_for_live_stream(Pa, Tag, NodeB, 15000),
     ok = peer:call(Pa, mycelium_dist_gc, sweep_now, []),
     NodesA = peer:call(Pa, erlang, nodes, []),
     ?assert(lists:member(NodeB, NodesA),
@@ -295,18 +296,38 @@ next_port(BasePort) ->
     put(Key, N + 1),
     BasePort + N.
 
-wait_for_persistent_stream(Peer, Tag, Node, TimeoutMs) ->
+%% Open a tagged stream and confirm it STAYS live. open_stream_persistent
+%% returns {ok, Holder} as soon as the QUIC stream opens, but the peer can
+%% still reset it (STREAM_REFUSED) if its user-stream acceptor isn't
+%% registered yet. So after opening, wait briefly for a refusal to surface
+%% and check the stream is still listed; retry the whole open-and-confirm
+%% if it was refused.
+wait_for_live_stream(Peer, Tag, Node, TimeoutMs) ->
     Deadline = erlang:monotonic_time(millisecond) + TimeoutMs,
-    wait_stream_loop(Peer, Tag, Node, Deadline).
+    live_stream_loop(Peer, Tag, Node, Deadline).
 
-wait_stream_loop(Peer, Tag, Node, Deadline) ->
-    case peer:call(Peer, ?MODULE, open_stream_persistent, [Tag, Node]) of
-        {ok, Holder} -> {ok, Holder};
+live_stream_loop(Peer, Tag, Node, Deadline) ->
+    Opened = peer:call(Peer, ?MODULE, open_stream_persistent, [Tag, Node]),
+    Live = case Opened of
+        {ok, Holder} ->
+            %% Give a refusal-reset time to arrive, then confirm the
+            %% stream is still there.
+            timer:sleep(300),
+            case peer:call(Peer, quic_dist, list_streams, [Node]) of
+                [] -> false;
+                L when is_list(L) -> {ok, Holder}
+            end;
         _ ->
+            false
+    end,
+    case Live of
+        {ok, _} = Ok ->
+            Ok;
+        false ->
             case erlang:monotonic_time(millisecond) > Deadline of
-                true  -> ?assert(false, "open_stream never succeeded");
+                true  -> ?assert(false, "no live user stream established");
                 false -> timer:sleep(100),
-                         wait_stream_loop(Peer, Tag, Node, Deadline)
+                         live_stream_loop(Peer, Tag, Node, Deadline)
             end
     end.
 
