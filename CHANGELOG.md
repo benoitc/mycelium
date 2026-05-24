@@ -96,6 +96,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   already formed recovers existing state instead of sitting empty.
 
 ### Fixed
+- `mycelium_ormap` merge is now commutative when two concurrent values
+  share an HLC. It previously compared only the HLC and fell through to
+  the second argument on a tie, so two replicas merging in opposite order
+  could keep different values and never converge (common on a single host,
+  where writes land in the same millisecond). The tie now breaks
+  deterministically on the dot's node atom. Surfaced by the new
+  `mycelium_map_e2e_SUITE` concurrent-write case.
 - Event subscriptions survive a restart of the source process. Sources
   keep subscribers in ephemeral state, and a source lives in a different
   supervision subtree from its subscribers, so a source crash previously

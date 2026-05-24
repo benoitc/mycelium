@@ -10,7 +10,9 @@
 %% Each key holds either a `value' entry (a payload plus the set of
 %% dots that have written it) or a `tombstone' entry (an HLC marking
 %% the time of removal). Merge keeps the entry with the greater
-%% HLC; a tombstone newer than any value wins, and an add newer than
+%% HLC (ties between concurrent values broken deterministically by the
+%% node atom, so the merge is commutative and replicas never diverge); a
+%% tombstone newer than any value wins, and an add newer than
 %% any tombstone wins. The two outcomes are symmetric, so delayed
 %% gossip cannot resurrect a removed entry, nor can a delayed remove
 %% silently drop a fresher add.
@@ -168,7 +170,13 @@ merge_entry(undefined, E)                    -> E;
 merge_entry(E, undefined)                    -> E;
 merge_entry({value, V1, D1}, {value, V2, D2}) ->
     MergedDots = maps:merge(D1, D2),
-    case mycelium_hlc:compare(max_hlc(D1), max_hlc(D2)) of
+    %% Last-write-wins by the maximum dot. Compare the full dot
+    %% ({Node, HLC}), not just the HLC: when two concurrent writes land on
+    %% the same HLC (common on a single host, same millisecond) the node
+    %% atom breaks the tie. That keeps the merge commutative, so every
+    %% replica resolves the conflict to the same value instead of diverging
+    %% on argument order.
+    case dot_compare(max_dot(D1), max_dot(D2)) of
         gt -> {value, V1, MergedDots};
         _  -> {value, V2, MergedDots}
     end;
@@ -189,6 +197,30 @@ merge_entry({value, _, D} = V, {tombstone, T} = Tomb) ->
     end.
 
 dot_hlc({_Node, HLC}) -> HLC.
+
+%% Total order on dots: HLC first, then the node atom as a deterministic
+%% tiebreak so two writes with an equal HLC resolve identically on every
+%% replica (the merge stays commutative).
+dot_compare({Na, Ha}, {Nb, Hb}) ->
+    case mycelium_hlc:compare(Ha, Hb) of
+        eq    -> compare_node(Na, Nb);
+        Other -> Other
+    end.
+
+compare_node(N, N)                -> eq;
+compare_node(Na, Nb) when Na > Nb -> gt;
+compare_node(_, _)                -> lt.
+
+%% The greatest dot in a non-empty dot set, by dot_compare/2.
+max_dot(Dots) ->
+    [First | Rest] = maps:keys(Dots),
+    lists:foldl(
+        fun(Dot, Acc) ->
+            case dot_compare(Dot, Acc) of gt -> Dot; _ -> Acc end
+        end,
+        First,
+        Rest
+    ).
 
 %% Maximum HLC across a non-empty dot set.
 max_hlc(Dots) ->
