@@ -4,23 +4,43 @@
 %%%
 %%% Generic replication driver for a gossiped OR-Map.
 %%%
-%%% One instance per feature (the service registry, leader election,
-%%% ...). Each instance owns a Plumtree tag and a callback module. It
-%%% handles the parts every replicated map needs:
+%%% This is the low-level public substrate behind `mycelium_map' and the
+%%% built-in registry / leader / sharded-placement / durable-reminder
+%%% features. Use `mycelium_map' for an ordinary replicated key-value map;
+%%% implement this behaviour directly only when you need custom merge or
+%%% snapshot semantics (e.g. leader election layers fencing tokens on top
+%%% via `broadcast_custom/2'). Stability: beta.
 %%%
-%%%   - broadcast add/remove deltas as OR-Map entries,
+%%% An instance is started with `start_link(#{name := atom(), callback :=
+%%% module()})'. `name' is BOTH the registered process name and the
+%%% Plumtree tag that scopes this instance's broadcasts, so it must be a
+%%% unique atom. Instances share the Plumtree bus; each ignores payloads
+%%% carrying another instance's tag. The driver handles:
+%%%
+%%%   - broadcast add/remove deltas as OR-Map entries (`broadcast_update/2'),
 %%%   - route incoming deltas to the owner's merge callback,
-%%%   - full-sync to a peer on `peer_up',
+%%%   - seed peers from the active view and full-sync on start / `peer_up',
 %%%   - drop a node's entries on `peer_down'.
 %%%
-%%% The owner holds the actual OR-Map (so it can run its own side
-%%% effects synchronously: emit events, recompute an election) and
-%%% implements the `mycelium_replica' behaviour. Feature-specific
-%%% gossip that is not a map delta (such as leader-election fencing
-%%% tokens) rides the same tag via `broadcast_custom/2'.
+%%% The OWNER process holds the actual OR-Map (so it can run its side
+%%% effects synchronously) and implements the callbacks below. The driver
+%%% calls them from its own process, passing the instance `name' first so
+%%% one callback module can back many instances. Start the owner BEFORE
+%%% its replica instance (the callbacks cast into the owner).
 %%%
-%%% Instances share the Plumtree bus; each ignores payloads carrying
-%%% another instance's tag.
+%%% Wire safety: callbacks receive entries straight off gossip. Passing
+%%% them to `mycelium_ormap:absorb_clock/merge' unvalidated can crash the
+%%% merge or the shared `mycelium_hlc' server (malformed dot/HLC, empty dot
+%%% map, non-map payload). An implementer that merges deltas from sources
+%%% it does not fully control SHOULD validate via `mycelium_crdt_wire'
+%%% (the recommended helper; not enforced). Leaf-payload validation is the
+%%% app's own concern. (Of the built-ins, only the reminder validates;
+%%% registry/leader/shard have internal writers.)
+%%%
+%%% Transport: gossip rides `mycelium_plumtree' + `mycelium_hyparview_events'
+%%% over mycelium's dist carrier, so a consumer must run on mycelium's
+%%% distribution. A pluggable transport (for apps with their own membership)
+%%% is future work.
 -module(mycelium_replica).
 -behaviour(gen_server).
 
