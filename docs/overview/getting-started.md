@@ -253,19 +253,131 @@ From this point on, anything you can do with stock Erlang
 distribution works: `rpc:call/4`, `Pid ! Msg`, `global`, links,
 monitors.
 
-### Joining without manual intervention
+## Seeds and discovery
 
-For production, the join is normally driven by the configuration
-file:
+The manual `join/1` above is the teaching path. In a real deployment a
+node joins the cluster from configuration, and you never type a node name.
+This section explains the two pieces that make that work: what a *seed* is,
+and how a node turns a seed's name into an address.
+
+### What a seed is
+
+A seed is just an existing cluster member that a new node contacts to get
+in. Nothing about a seed's own configuration is special; what matters is
+that other nodes know how to reach it. The very first node you start has
+no one to join (it *is* the seed); every later node joins through one or
+more seeds. Seeds are not masters: once a node is in the overlay it is an
+equal peer, and any member can seed the next joiner.
+
+Because membership is gossiped, you need only a few seeds. Two or three
+stable, well-known addresses are enough for a large cluster, since a
+joiner needs just one of them to answer.
+
+### How a node resolves a seed's address
+
+Mycelium runs no EPMD, so a node name like `seed@10.0.0.1` must be turned
+into a UDP `{address, port}` some other way. That is the *discovery chain*:
+a list of backends tried in order, first hit wins.
 
 ```erlang
 {mycelium, [
-    {contact_nodes, ['seed1@host', 'seed2@host']}
+    {discovery_backends, [
+        mycelium_discovery_static,   %% explicit {Node, {Addr, Port}} table
+        mycelium_discovery_file,     %% shared dir of <node>.endpoint files
+        mycelium_discovery_dns       %% resolve the host part via DNS
+    ]}
 ]}
 ```
 
-When mycelium starts, it tries each contact node until one responds.
-You do not have to call `mycelium:join/1` by hand.
+- **static** reads an explicit table from the `quic` app's `dist` env. Use
+  it when seed addresses are fixed and known up front:
+
+  ```erlang
+  {quic, [
+      {dist, [
+          {nodes, [
+              {'seed1@10.0.0.1', {"10.0.0.1", 9100}},
+              {'seed2@10.0.0.2', {"10.0.0.2", 9100}}
+          ]}
+      ]}
+  ]}
+  ```
+
+- **file** uses a directory every node can read. Each node writes its own
+  `<node>.endpoint` file there at boot (`discovery_dir`, default
+  `data/discovery`), so peers sharing the filesystem (one host, or a
+  shared/NFS volume) find each other with no static table. This is what
+  the local multi-node examples use.
+
+- **dns** takes the host part of the node name
+  (`seed@db.svc.cluster.local`), resolves it through DNS, and pairs it
+  with the listen port. Handy on Kubernetes or anywhere the name already
+  resolves to an address.
+
+A seed must be reachable through whatever chain its joiners use. The
+simplest setups are one static entry per seed (cloud VMs with fixed IPs)
+or a shared `discovery_dir` (a single host or a shared volume).
+
+### Auto-joining seeds with `contact_nodes`
+
+List the seeds in `contact_nodes` and mycelium joins them at boot, so you
+never call `mycelium:join/1`:
+
+```erlang
+{mycelium, [
+    {listen_port, 9100},
+    {contact_nodes, ['seed1@10.0.0.1', 'seed2@10.0.0.2']}
+]}
+```
+
+While its active view is empty, the node asks each contact to let it in,
+retrying every `contact_retry_ms` (default 5000) until it is in the
+overlay. A seed that comes up after its joiners, or a node that briefly
+loses every peer, recovers on its own. The seeds must be resolvable
+through the discovery chain.
+
+Ship the *same* `contact_nodes` list to every node, seeds included (a node
+skips its own name), so the configuration is uniform across the fleet. A
+single-seed cluster leaves the seed's list effectively empty and points
+everyone else at it.
+
+### Starting a node in production
+
+In a release the three dist flags go in `vm.args` and the mycelium
+configuration in `sys.config`:
+
+```
+## vm.args
+-name app@10.0.0.5
+-setcookie <your-secret>
+-proto_dist mycelium
+-epmd_module mycelium_epmd
+-start_epmd false
+```
+
+```erlang
+%% sys.config
+[
+    {mycelium, [
+        {listen_port, 9100},
+        {contact_nodes, ['seed1@10.0.0.1', 'seed2@10.0.0.2']},
+        {dist_cookie, <<"your-secret">>},
+        {auth_trust_mode, tofu}
+    ]},
+    {quic, [
+        {dist, [{nodes, [
+            {'seed1@10.0.0.1', {"10.0.0.1", 9100}},
+            {'seed2@10.0.0.2', {"10.0.0.2", 9100}}
+        ]}]}
+    ]}
+].
+```
+
+The node generates its TLS and Ed25519 material on first boot (see
+[where credentials live](#one-time-setup-where-credentials-live)), resolves
+the seeds through discovery, and joins the overlay, all without a scripted
+join step. See [run in production](../how-to/run-in-production.md) for
+ports, secrets, sizing, and shutdown.
 
 ## A first service lookup
 
