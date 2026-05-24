@@ -113,6 +113,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reminder payloads must be restart-safe data.
 
 ### Fixed
+- The service registry, leader election, and sharded placement now validate
+  incoming gossip before merging (via `mycelium_crdt_wire`, as the reminder and
+  map already did). A malformed peer delta/snapshot (bad or empty dot map,
+  non-`#timestamp{}` HLC, non-map payload) or a malformed leader fence
+  previously could crash the owning gen_server or the shared `mycelium_hlc`
+  server; such entries are now dropped and well-formed gossip merges
+  unchanged.
 - `mycelium_ormap` merge is now commutative when two concurrent values
   share an HLC. It previously compared only the HLC and fell through to
   the second argument on a tie, so two replicas merging in opposite order
