@@ -16,23 +16,36 @@
 %%====================================================================
 
 setup() ->
-    case whereis(mycelium_hlc) of
-        undefined -> {ok, _} = mycelium_hlc:start_link();
-        _ -> ok
-    end,
+    %% Start the shared HLC server if it is not already up, and remember
+    %% whether WE started it. Leaking it here breaks a later
+    %% `ensure_all_started(mycelium)' when eunit and ct run in one
+    %% invocation (e.g. `rebar3 check'), since mycelium_hlc is the app's
+    %% first child.
+    Started =
+        case whereis(mycelium_hlc) of
+            undefined ->
+                {ok, _} = mycelium_hlc:start_link(),
+                true;
+            _ ->
+                false
+        end,
     Dir = filename:join(
         "/tmp",
         "myc_replica_log_" ++ integer_to_list(erlang:unique_integer([positive]))
     ),
-    Dir.
+    {Dir, Started}.
 
-cleanup(Dir) ->
+cleanup({Dir, Started}) ->
     _ = catch disk_log:close(t),
     os:cmd("rm -rf " ++ Dir),
+    case Started of
+        true -> catch gen_server:stop(mycelium_hlc);
+        false -> ok
+    end,
     ok.
 
 with_dir(Fun) ->
-    {setup, fun setup/0, fun cleanup/1, Fun}.
+    {setup, fun setup/0, fun cleanup/1, fun({Dir, _Started}) -> Fun(Dir) end}.
 
 %% A live value entry for Key, authored by this node.
 entry(Val) ->
@@ -150,8 +163,12 @@ delete_removes_files_test_() ->
         ]
     end).
 
-undefined_handle_is_noop_test() ->
-    ?assertEqual(ok, mycelium_replica_log:append(undefined, #{a => entry(1)})),
-    ?assertEqual(ok, mycelium_replica_log:sync(undefined)),
-    ?assertEqual(ok, mycelium_replica_log:snapshot(undefined, #{})),
-    ?assertEqual(ok, mycelium_replica_log:close(undefined)).
+undefined_handle_is_noop_test_() ->
+    with_dir(fun(_Dir) ->
+        [
+            ?_assertEqual(ok, mycelium_replica_log:append(undefined, #{a => entry(1)})),
+            ?_assertEqual(ok, mycelium_replica_log:sync(undefined)),
+            ?_assertEqual(ok, mycelium_replica_log:snapshot(undefined, #{})),
+            ?_assertEqual(ok, mycelium_replica_log:close(undefined))
+        ]
+    end).

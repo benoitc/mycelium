@@ -43,9 +43,10 @@ The typical flow:
 1> mycelium:register_service(my_worker, #{role => primary}).
 ok
 
-%% A moment later, on node B
+%% A moment later, on node B. lookup/1 returns #service_entry{}
+%% records (fields: name, pid, node, meta).
 2> mycelium:lookup(my_worker).
-{ok, [{my_worker, 'node1@host', <0.123.0>, #{role => primary}}]}
+{ok, [{service_entry, my_worker, <0.123.0>, 'node1@host', #{role => primary}}]}
 
 3> {ok, Node, Pid} = mycelium:whereis_service(my_worker).
 {ok, 'node1@host', <0.123.0>}
