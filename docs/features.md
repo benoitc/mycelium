@@ -98,6 +98,7 @@ Stability tiers used below:
 | `mycelium_ormap` (OR-Map CRDT)                | supported    | CT: `mycelium_ormap_SUITE`; prop suite                          |
 | `mycelium_hlc` (Hybrid Logical Clock)         | supported    | CT: `mycelium_hlc_SUITE`; prop suite                            |
 | `mycelium_replica` replication behaviour      | beta         | CT: the 4 consumer suites + `mycelium_map_e2e_SUITE`            |
+| Periodic anti-entropy (reminder + map)        | beta         | CT: `mycelium_anti_entropy_e2e_SUITE` (off/on convergence)      |
 | `mycelium_crdt_wire` safe gossip ingest       | supported    | EUnit: `mycelium_crdt_wire_tests`; CT: `mycelium_map_SUITE`     |
 | `mycelium_replica_log` (WAL + snapshot store) | supported    | EUnit: `mycelium_replica_log_tests`                             |
 

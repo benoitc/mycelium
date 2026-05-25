@@ -30,6 +30,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   entirely by the QUIC TLS layer.
 
 ### Added
+- Periodic anti-entropy for the value-carrying replica stores (reminders and
+  `mycelium_map`): each pulls a full sync from a random peer every
+  `replica_anti_entropy_ms` (default 30000, `0` disables), so they reconverge
+  after a partition heals even without a fresh `peer_up` (previously a node
+  whose link survived a split could stay behind, since full-synced state is not
+  re-broadcast). Registry/leader/shard are unaffected (the registry has the
+  overlay-lookup fallback; the shard self-heals via heartbeats).
 - The partition-heal soak case (`mycelium_soak_SUITE:partition_and_heal`,
   gated by `MYCELIUM_CT_SOAK=1`) is now a real, asserted test: it splits a
   4-node cluster, verifies the halves are isolated, heals, and verifies

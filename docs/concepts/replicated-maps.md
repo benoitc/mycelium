@@ -134,7 +134,10 @@ recover-then-re-converge on restart works best from a quiesced cluster.
 Reads are eventually consistent: there is no consensus, so after a write
 other nodes converge once the delta has propagated, and during a partition
 two sides can briefly disagree. This is the same trade every other
-eventually-consistent piece of mycelium makes.
+eventually-consistent piece of mycelium makes. After a partition heals the
+map reconverges on its own via periodic anti-entropy (a background full-sync
+pull every `replica_anti_entropy_ms`, default 30s), even on a node whose link
+survived the split and got no fresh connection event.
 
 `mycelium_map` fits small, cluster-wide, eventually-consistent
 control-plane state. It is the wrong tool for:

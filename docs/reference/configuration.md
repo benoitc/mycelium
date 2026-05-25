@@ -91,6 +91,12 @@ Durable reminders build on placement, so they also obey the placement keys above
 | `mycelium_map_tombstone_ttl_ms` | `3600000` | `non_neg_integer()` | Default tombstone TTL for maps (overridable per map). |
 | `mycelium_map_data_dir` | `"data/maps"` | `string()` | Per-node directory for maps started with `persist => true` (WAL + snapshot). |
 
+## Replication / anti-entropy
+
+| Key | Default | Type | Purpose |
+|-----|---------|------|---------|
+| `replica_anti_entropy_ms` | `30000` | `non_neg_integer()` | Periodic anti-entropy interval for the value-carrying replica stores (reminder, map): each pulls a full sync from a random peer this often, so they reconverge after a partition heal even without a fresh `peer_up`. `0` disables. Cost is one full-sync of the store per interval; raise it (or `0`) for very large maps. Does not affect registry/leader/shard. |
+
 ## Examples
 
 ### Minimal development config

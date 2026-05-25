@@ -107,6 +107,11 @@ of its node as long as that node's disk does. On recovery the local HLC is
 advanced past every persisted timestamp, and fire/cancel tombstones are
 persisted too, so a fired reminder is never re-fired after a restart.
 
+The reminder store also reconverges after a partition heals via periodic
+anti-entropy (a background full-sync pull every `replica_anti_entropy_ms`,
+default 30s), so a reminder reaches every node even if some link survived the
+split without a fresh connection event.
+
 **The payload must be restart-safe data**: a self-contained value, not a pid,
 port, ref, or fun. This already holds without persistence, because a reminder
 is delivered on whichever node *owns* the key at fire time, not where it was

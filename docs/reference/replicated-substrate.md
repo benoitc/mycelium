@@ -40,7 +40,8 @@ the owner, which must already exist. The per-instance supervisor uses
 -callback replica_apply_full_sync(Name, Snapshot) -> ok.
 -callback replica_full_sync_snapshot(Name)        -> {sync, Snapshot} | empty.
 -callback replica_remove_node(Name, node())       -> ok.
--callback replica_merge_custom(Name, Payload)     -> ok.   %% optional
+-callback replica_merge_custom(Name, Payload)     -> ok.       %% optional
+-callback replica_anti_entropy()                  -> boolean(). %% optional
 ```
 
 - `replica_merge_delta/2` — merge an incoming `{Key, entry}` delta into the
@@ -55,6 +56,9 @@ the owner, which must already exist. The per-instance supervisor uses
   maps](../concepts/replicated-maps.md#membership-churn)).
 - `replica_merge_custom/2` — merge a feature-specific broadcast (see
   below). Optional; omit it if you do not use `broadcast_custom/2`.
+- `replica_anti_entropy/0` — return `true` to make periodic anti-entropy
+  intrinsic to this module's instances (see [below](#anti-entropy)).
+  Optional; omit it (the default) to leave it off.
 
 ## Broadcasting
 
@@ -80,6 +84,25 @@ active view and pulls a full sync from those peers via
 `replica_full_sync_snapshot/1` / `replica_apply_full_sync/2`. A restarted
 owner recovers state the same way. There is nothing to do in your
 callbacks for this; it is built into the driver.
+
+### Anti-entropy
+
+The full-sync above is one-shot (on start / `peer_up`). State learned via
+full-sync is not re-broadcast, so after a partition heals a node whose link
+survived the split gets no fresh `peer_up` and could stay behind. To close that
+gap an instance can run periodic anti-entropy: it pulls a full sync from one
+random peer every `replica_anti_entropy_ms` (default 30000), so it reconverges
+on its own. Because the merge is idempotent and the snapshot is full-state,
+repeated pulls are safe and state propagates transitively.
+
+A callback module turns this on by exporting `replica_anti_entropy/0` returning
+`true`. It is a property of the module, not a per-instance or operator flag:
+the only knob is the global interval. The built-in reminder and `mycelium_map`
+do so, so their convergence is intrinsic with no opt-out. Implement it only for
+a store whose `replica_full_sync_snapshot/1` returns the WHOLE state and whose
+removals are tombstones, so a re-pull cannot resurrect a hard-deleted entry. The
+registry (local-only snapshot, overlay-lookup fallback), leader, and shard
+(heartbeat-driven self-healing) do not implement it, so they stay off.
 
 ## Wire safety
 
