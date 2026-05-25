@@ -34,6 +34,7 @@
     select/1,
     address/0,
     is_node_name/1,
+    listen_port/0,
     project_defaults/0,
     validate_auth_config/1
 ]).
@@ -94,6 +95,16 @@ address() ->
 
 is_node_name(Node) ->
     quic_dist:is_node_name(Node).
+
+%% Inspect the configured local distribution listen port, the value
+%% projected into {quic, dist_port}. Returns undefined before the port
+%% has been resolved (i.e. before the proto_dist listener has booted).
+-spec listen_port() -> {ok, inet:port_number()} | undefined.
+listen_port() ->
+    case application:get_env(quic, dist_port) of
+        {ok, Port} when is_integer(Port) -> {ok, Port};
+        _ -> undefined
+    end.
 
 %%====================================================================
 %% Internal: early-boot wiring

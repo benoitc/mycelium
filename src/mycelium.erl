@@ -26,6 +26,7 @@
 -export([
     register_service/1,
     register_service/2,
+    register_service/3,
     unregister_service/1,
     lookup/1,
     lookup_local/1,
@@ -163,6 +164,13 @@ register_service(Name) ->
 -spec register_service(atom() | binary(), map()) -> ok | {error, term()}.
 register_service(Name, Meta) ->
     mycelium_registry:register_service(Name, Meta).
+
+%% Register a specific pid (not the caller) under Name. The registry
+%% monitors Pid and unregisters the service when it exits.
+%% Stability: supported.
+-spec register_service(atom() | binary(), pid(), map()) -> ok | {error, term()}.
+register_service(Name, Pid, Meta) when is_pid(Pid) ->
+    mycelium_registry:register_service(Name, Pid, Meta).
 
 %% Stability: supported.
 -spec unregister_service(atom() | binary()) -> ok.

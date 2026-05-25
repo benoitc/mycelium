@@ -20,7 +20,7 @@ Stability tiers used below:
 | `mycelium:join/1`, `leave/0`                  | supported    | CT: `mycelium_hyparview_SUITE`, `mycelium_proto_dist_SUITE`     |
 | `mycelium:active_view/0`, `passive_view/0`    | supported    | CT: `mycelium_hyparview_SUITE`                                  |
 | HyParView shuffle and promote-from-passive    | supported    | CT: `mycelium_churn_SUITE`, soak `broadcast_burst`              |
-| `mycelium:subscribe/0,1`, `unsubscribe/1`     | supported    | EUnit: `mycelium_hyparview_events_tests`                        |
+| `mycelium:subscribe/0,1`, `unsubscribe/1`     | supported    | CT: `mycelium_hyparview_SUITE`                                  |
 | Plumtree gossip (`mycelium_plumtree`)         | supported    | CT: `mycelium_plumtree_SUITE`; soak `broadcast_burst`           |
 
 ## Distribution
@@ -38,12 +38,12 @@ Stability tiers used below:
 
 | Feature                                                   | Tier      | Coverage notes                                              |
 |-----------------------------------------------------------|-----------|-------------------------------------------------------------|
-| `register_service/1,2`, `unregister_service/1`            | supported | CT: `mycelium_registry_SUITE`                               |
+| `register_service/1,2,3`, `unregister_service/1`          | supported | CT: `mycelium_registry_SUITE`                               |
 | `lookup/1`, `lookup_local/1`, `list_services/0`           | supported | CT: `mycelium_registry_SUITE`                               |
 | `whereis_service/1,2` with overlay fallback               | supported | CT: `mycelium_registry_SUITE`, `mycelium_router_SUITE`      |
-| Via callbacks (`{via, mycelium, _}`)                      | supported | EUnit: `mycelium_via_tests`                                 |
-| `global_register/1` proxy bridge                          | beta      | EUnit: `mycelium_registry_tests`                            |
-| `get_proxy/1`                                             | beta      | EUnit: `mycelium_registry_tests`                            |
+| Via callbacks (`{via, mycelium, _}`)                      | supported | CT: `mycelium_registry_SUITE`                               |
+| `global_register/1` proxy bridge                          | beta      | CT: `mycelium_registry_SUITE`                               |
+| `get_proxy/1`                                             | beta      | CT: `mycelium_registry_SUITE`                               |
 | Service events API (`subscribe_services/0,1`)             | beta      | CT: `mycelium_service_events_SUITE`                         |
 
 ## Singletons and leader election

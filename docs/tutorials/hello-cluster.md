@@ -116,7 +116,7 @@ Now have `node1` register and unregister a service:
 
 ```erlang
 %% On node1
-3> mycelium:register_service(another, self()).
+3> mycelium:register_service(another, #{}).
 4> mycelium:unregister_service(another).
 ```
 

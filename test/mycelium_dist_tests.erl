@@ -63,6 +63,22 @@ listen_propagates_cert_ensure_failure_test_() ->
             ]
         end}.
 
+%% listen_port/0 reports the configured {quic, dist_port}, and
+%% undefined when it has not been resolved yet.
+listen_port_reports_quic_dist_port_test() ->
+    Saved = application:get_env(quic, dist_port),
+    try
+        application:set_env(quic, dist_port, 47123),
+        ?assertEqual({ok, 47123}, mycelium_dist:listen_port()),
+        application:unset_env(quic, dist_port),
+        ?assertEqual(undefined, mycelium_dist:listen_port())
+    after
+        case Saved of
+            {ok, V} -> application:set_env(quic, dist_port, V);
+            undefined -> application:unset_env(quic, dist_port)
+        end
+    end.
+
 cleanup() ->
     application:unset_env(quic, dist),
     application:unset_env(mycelium, auth_enabled),

@@ -198,8 +198,8 @@ The proto_dist module has no public API; you select it with
 `-proto_dist mycelium`. The relevant public functions:
 
 ```erlang
-%% Inspect the local listen port.
-mycelium_dist:listen_port() -> {ok, port_number()} | undefined.
+%% Inspect the configured local listen port.
+mycelium_dist:listen_port() -> {ok, inet:port_number()} | undefined.
 
 %% Validate a config snapshot without booting (used in tests).
 mycelium_dist:validate_auth_config(QuicDistOpts) -> ok.

@@ -16,6 +16,7 @@
 %% Test cases
 -export([
     test_register_service/1,
+    test_register_service_pid/1,
     test_register_duplicate/1,
     test_unregister_service/1,
     test_lookup_local/1,
@@ -39,6 +40,8 @@
     %% Service proxy event wiring
     test_service_proxy_reaps_on_remote_service_down/1,
     test_service_proxy_ignores_unrelated_service_down/1,
+    test_global_register_local/1,
+    test_global_register_not_found/1,
     malformed_gossip_does_not_crash/1
 ]).
 
@@ -53,6 +56,7 @@ groups() ->
     [
         {registry, [sequence], [
             test_register_service,
+            test_register_service_pid,
             test_register_duplicate,
             test_unregister_service,
             test_lookup_local,
@@ -75,6 +79,8 @@ groups() ->
             test_via_gen_server,
             test_service_proxy_reaps_on_remote_service_down,
             test_service_proxy_ignores_unrelated_service_down,
+            test_global_register_local,
+            test_global_register_not_found,
             malformed_gossip_does_not_crash
         ]}
     ].
@@ -130,6 +136,27 @@ malformed_gossip_does_not_crash(_Config) ->
 
 test_register_service(_Config) ->
     ?assertEqual(ok, mycelium:register_service(test_svc, #{type => worker})),
+    ok.
+
+%% register_service/3 registers an explicit pid (not the caller), and the
+%% registry monitors it: the entry is reaped when that pid exits.
+test_register_service_pid(_Config) ->
+    Parent = self(),
+    Pid = spawn(fun() ->
+        Parent ! ready,
+        receive
+            stop -> ok
+        end
+    end),
+    receive
+        ready -> ok
+    end,
+    ?assertNotEqual(Parent, Pid),
+    ?assertEqual(ok, mycelium:register_service(explicit_pid_svc, Pid, #{role => worker})),
+    ?assertEqual({ok, Pid}, mycelium:lookup_local(explicit_pid_svc)),
+    Pid ! stop,
+    timer:sleep(100),
+    ?assertEqual({error, not_found}, mycelium:lookup_local(explicit_pid_svc)),
     ok.
 
 test_register_duplicate(_Config) ->
@@ -406,4 +433,23 @@ test_service_proxy_ignores_unrelated_service_down(_Config) ->
     end,
     true = is_process_alive(Proxy),
     mycelium_proxy_sup:stop_proxy(Name),
+    ok.
+
+%% global_register/1 publishes a local service's pid into the global
+%% registry. No proxy is created for a local service, so get_proxy/1
+%% reports not_found.
+test_global_register_local(_Config) ->
+    ok = mycelium:register_service(global_local_svc, #{}),
+    {ok, Self} = mycelium:lookup_local(global_local_svc),
+    ?assertEqual(self(), Self),
+    ?assertEqual({ok, self()}, mycelium:global_register(global_local_svc)),
+    ?assertEqual(self(), global:whereis_name(global_local_svc)),
+    ?assertEqual(not_found, mycelium:get_proxy(global_local_svc)),
+    global:unregister_name(global_local_svc),
+    ok.
+
+%% global_register/1 and get_proxy/1 on an unknown name.
+test_global_register_not_found(_Config) ->
+    ?assertEqual({error, not_found}, mycelium:global_register(no_such_global_svc)),
+    ?assertEqual(not_found, mycelium:get_proxy(no_such_global_svc)),
     ok.
