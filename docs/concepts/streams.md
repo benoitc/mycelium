@@ -1,11 +1,15 @@
 # Streams
 
-A QUIC connection multiplexes streams natively. Mycelium uses
-one bidirectional stream for the Erlang dist control channel
-(opened by upstream `quic_dist`), one pair of unidirectional
-streams for the [Ed25519 authentication](authentication.md)
-handshake, and *application-level* streams managed by
-`mycelium_streams`.
+A QUIC connection multiplexes streams natively. Over the dist
+connection, upstream `quic_dist` runs a control stream (ticks and
+system messages, highest priority) alongside a pool of data
+streams: each distribution message is routed onto a data stream by
+hashing its `{From, To}` process pair, so traffic between different
+process pairs flows on independent streams while messages within a
+pair keep their order. On top of that mycelium adds one pair of
+unidirectional streams for the
+[Ed25519 authentication](authentication.md) handshake, and
+*application-level* streams managed by `mycelium_streams`.
 
 This page is about that third category: the tagged user-stream
 multiplex. It is the right tool when message passing is not
@@ -16,17 +20,17 @@ nodes.
 
 `Pid ! Msg` is great for sending one message. It is poor for:
 
-- A large blob that would block the dist control stream while
-  it copies through.
+- A large blob that would monopolise a shared dist data stream
+  (and pay the cost of Erlang term encoding) while it copies
+  through.
 - A long-running byte stream (a log feed, a snapshot upload, a
   video frame stream).
 - An application protocol with its own framing where you do not
   want the overhead of Erlang term encoding.
 
-Streams give you a separate QUIC stream over the same
-connection. The dist control stream stays responsive; the
-application stream has its own flow control; ownership is
-explicit.
+Streams give you a separate QUIC stream over the same connection,
+off the dist data-stream pool: it cannot stall ordinary messages,
+it has its own flow control, and ownership is explicit.
 
 ## The wire shape
 

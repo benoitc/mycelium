@@ -40,7 +40,7 @@ configuration surface is small.
 | Service discovery                 | External (or build on Plumtree)                                | Built in (CRDT-backed registry)                                          |
 | Authentication                    | Optional                                                       | Ed25519 mutual auth by default                                          |
 | State replication                 | Pluggable broadcast modules                                    | Plumtree + OR-Map CRDT (fixed)                                          |
-| Transport                         | TCP                                                            | QUIC (encrypted by default; connection migration)                       |
+| Transport                         | TCP                                                            | QUIC (encrypted by default; per-pair stream multiplexing; connection migration) |
 | `global` compatibility            | No                                                             | Yes                                                                     |
 | Process monitors / links          | Custom                                                         | Standard Erlang                                                          |
 
@@ -196,9 +196,12 @@ Pid ! Msg.
 
 Channels disappear; everything goes through standard Erlang
 distribution. If you depended on channel parallelism for
-throughput, measure: mycelium's single QUIC connection multiplexes
-streams natively and may match what you were getting from
-multiple TCP connections.
+throughput, the carrier already provides it: mycelium's QUIC
+connection routes distribution messages across a pool of streams,
+hashing each `{From, To}` process pair onto its own stream (the
+control stream stays separate and highest priority). Independent
+process pairs run in parallel without head-of-line blocking, with
+no channels to declare.
 
 ### Mycelium to Partisan
 
@@ -226,6 +229,12 @@ qualitative notes:
 - **Broadcast cost.** Both projects can use Plumtree; the algorithm
   is the same. Mycelium ships it integrated; Partisan ships it as
   one of several broadcast modules.
+- **Stream parallelism.** mycelium's QUIC carrier hashes each
+  `{From, To}` process pair onto its own stream from a per-connection
+  pool, so independent flows do not head-of-line block one another
+  and control traffic is prioritised above data. This is automatic;
+  Partisan reaches the same parallelism through channels you declare
+  and route messages onto explicitly.
 
 Pick by feature fit, not by performance benchmark. Both projects
 scale to clusters of hundreds of nodes.
@@ -237,7 +246,8 @@ scale to clusters of hundreds of nodes.
 | Built-in service discovery              | Mycelium |
 | Multiple topology backends              | Partisan |
 | Standard `Pid ! Msg` and `gen_server`   | Mycelium |
-| Channel-based parallelism               | Partisan |
+| Explicit per-class message channels     | Partisan |
+| Automatic per-pair stream parallelism   | Mycelium |
 | Minimal configuration                   | Mycelium |
 | Maximum flexibility                     | Partisan |
 | QUIC transport + Ed25519 in the box     | Mycelium |
