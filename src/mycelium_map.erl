@@ -58,7 +58,8 @@
     replica_merge_delta/2,
     replica_apply_full_sync/2,
     replica_full_sync_snapshot/1,
-    replica_remove_node/2
+    replica_remove_node/2,
+    replica_anti_entropy/0
 ]).
 
 %% gen_server callbacks.
@@ -215,6 +216,11 @@ replica_full_sync_snapshot(ReplicaName) ->
 
 replica_remove_node(ReplicaName, Node) ->
     gen_server:cast(owner_of(ReplicaName), {remove_node, Node}).
+
+%% A replicated map carries values that must reconverge after a heal even
+%% without a fresh peer_up, so anti-entropy is intrinsic (no opt-out).
+replica_anti_entropy() ->
+    true.
 
 %%====================================================================
 %% Owner gen_server

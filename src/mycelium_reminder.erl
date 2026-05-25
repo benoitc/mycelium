@@ -76,7 +76,8 @@
     replica_merge_delta/2,
     replica_apply_full_sync/2,
     replica_full_sync_snapshot/1,
-    replica_remove_node/2
+    replica_remove_node/2,
+    replica_anti_entropy/0
 ]).
 
 %% gen_server callbacks
@@ -168,6 +169,11 @@ replica_full_sync_snapshot(_Name) ->
 %% active view never drops reminders (re-ownership handles the rest).
 replica_remove_node(_Name, _Node) ->
     ok.
+
+%% Reminders are value-carrying and must reconverge after a heal even
+%% without a fresh peer_up, so anti-entropy is intrinsic (no opt-out).
+replica_anti_entropy() ->
+    true.
 
 %%====================================================================
 %% gen_server callbacks

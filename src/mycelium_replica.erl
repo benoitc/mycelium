@@ -75,17 +75,32 @@
 %% Merge a feature-specific custom broadcast (optional).
 -callback replica_merge_custom(Name :: atom(), Payload :: term()) -> ok.
 
--optional_callbacks([replica_merge_custom/2]).
+%% Whether this callback's instances run periodic anti-entropy (optional;
+%% absent or `false' = off). A module returns `true' here to make periodic
+%% full-sync convergence intrinsic to its instances, with no per-instance or
+%% operator opt-out; the only knob is the `replica_anti_entropy_ms' interval.
+%% Implement it only for value-carrying stores with a full-state snapshot and
+%% tombstone removal (the built-in reminder and `mycelium_map' do); the
+%% registry/leader/shard do not, so they stay off structurally.
+-callback replica_anti_entropy() -> boolean().
+
+-optional_callbacks([replica_merge_custom/2, replica_anti_entropy/0]).
 
 -record(state, {
     name :: atom(),
     cb :: module(),
     peers = [] :: [node()],
-    watch = #{} :: mycelium_source_monitor:watch()
+    watch = #{} :: mycelium_source_monitor:watch(),
+    %% Periodic anti-entropy interval (ms); 0 = disabled (timer never armed).
+    ae_ms = 0 :: non_neg_integer()
 }).
 
 %% The instance `name' is both the registered process name and the
-%% Plumtree tag that scopes this instance's broadcasts.
+%% Plumtree tag that scopes this instance's broadcasts. Periodic
+%% anti-entropy (a full-sync PULL from a random peer, so the instance
+%% reconverges after a heal even without a fresh `peer_up') is governed by
+%% the callback's `replica_anti_entropy/0', not by config: a value-carrying
+%% store declares it in code and there is no per-instance toggle.
 -type config() :: #{name := atom(), callback := module()}.
 -export_type([config/0]).
 
@@ -125,7 +140,13 @@ init(#{name := Name, callback := Cb}) ->
     %% otherwise sit at peers=[] and never sync. Deferred via a self-message
     %% so init/1 stays non-blocking.
     self() ! seed_initial_sync,
-    {ok, #state{name = Name, cb = Cb, watch = Watch}}.
+    AeMs =
+        case anti_entropy_enabled(Cb) of
+            true -> application:get_env(mycelium, replica_anti_entropy_ms, 30000);
+            false -> 0
+        end,
+    arm_anti_entropy(AeMs),
+    {ok, #state{name = Name, cb = Cb, watch = Watch, ae_ms = AeMs}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -219,6 +240,17 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, #state{watch = Watch} = State
         {down, _Source, Watch1} -> {noreply, State#state{watch = Watch1}};
         ignore -> {noreply, State}
     end;
+%% Periodic anti-entropy: pull a full sync from one random peer so a node
+%% that missed updates (e.g. a surviving link after a partition heal, which
+%% gets no fresh peer_up) reconverges. The merge is idempotent, so repeated
+%% pulls are safe; over a few ticks state propagates transitively.
+handle_info(anti_entropy, #state{name = Name, peers = Peers, ae_ms = AeMs} = State) ->
+    case Peers of
+        [] -> ok;
+        _ -> send_to_peer(Name, random_peer(Peers), {request_sync, node()})
+    end,
+    arm_anti_entropy(AeMs),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -260,3 +292,27 @@ active_view_peers() ->
 request_sync_from_peers(#state{name = Name, peers = Peers} = State) ->
     [send_to_peer(Name, Node, {request_sync, node()}) || Node <- Peers],
     State.
+
+%% A callback module opts its instances into periodic anti-entropy by
+%% exporting `replica_anti_entropy/0' returning `true'. Absent (the
+%% registry/leader/shard) it stays off.
+anti_entropy_enabled(Cb) ->
+    erlang:function_exported(Cb, replica_anti_entropy, 0) andalso Cb:replica_anti_entropy().
+
+random_peer(Peers) ->
+    lists:nth(rand:uniform(length(Peers)), Peers).
+
+%% Arm the next anti-entropy tick. 0 = disabled (never armed). Integer-only
+%% jitter (+-25%) so instances/nodes do not sync in lockstep; robust at small
+%% intervals (never rand:uniform(0), never a float for send_after).
+arm_anti_entropy(0) ->
+    ok;
+arm_anti_entropy(AeMs) when is_integer(AeMs), AeMs > 0 ->
+    _ = erlang:send_after(jitter(AeMs), self(), anti_entropy),
+    ok.
+
+jitter(AeMs) ->
+    case AeMs div 4 of
+        0 -> AeMs;
+        J -> AeMs - J + rand:uniform(2 * J)
+    end.

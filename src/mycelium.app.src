@@ -74,7 +74,13 @@
         {mycelium_map_tombstone_ttl_ms, 3600000},
         %% Directory for maps started with `persist => true' (WAL +
         %% snapshot, per map). Per-node; give each node its own path.
-        {mycelium_map_data_dir, "data/maps"}
+        {mycelium_map_data_dir, "data/maps"},
+        %% Periodic anti-entropy interval (ms) for the value-carrying replica
+        %% stores (reminder, map): each pulls a full sync from a random peer
+        %% every interval so it reconverges after a partition heal even
+        %% without a fresh peer_up. 0 disables. Cost is one full-sync of the
+        %% store per interval; raise it (or 0) for very large maps.
+        {replica_anti_entropy_ms, 30000}
     ]},
     {modules, []},
     {licenses, ["Apache-2.0"]},
