@@ -1,0 +1,13 @@
+{application, quickstart, [
+    {description, "Minimal application built on Mycelium"},
+    {vsn, "0.1.0"},
+    {registered, [quickstart_worker]},
+    {mod, {quickstart_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        mycelium
+    ]},
+    {env, []},
+    {modules, []}
+]}.

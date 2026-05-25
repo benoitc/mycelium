@@ -10,6 +10,9 @@ is X?". For the conceptual side, read the
   surface, secrets, configuration reference, logging, shutdown.
 - [Configure authentication](configure-authentication.md) — TOFU
   versus strict, provisioning the trust store, key rotation.
+- [Manage node keys](manage-node-keys.md) — create a node's keys,
+  read its fingerprint, and share public keys so peers trust each
+  other.
 - [Observe a cluster](observe-cluster.md) — the metrics
   catalogue, wiring a Prometheus or OTLP exporter, alerting.
 - [Troubleshoot](troubleshoot.md) — symptom-cause-fix tables for

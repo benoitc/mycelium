@@ -1,0 +1,6 @@
+_build/
+_checkouts/
+data/
+*.beam
+erl_crash.dump
+rebar3.crashdump

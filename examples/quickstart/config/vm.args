@@ -1,0 +1,7 @@
+-name quickstart@127.0.0.1
+-setcookie quickstart
+-proto_dist mycelium
+-epmd_module mycelium_epmd
+-start_epmd false
++K true
++A 10
